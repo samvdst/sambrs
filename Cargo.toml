@@ -1,18 +1,16 @@
 [package]
 name = "sambrs"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Samuel Van der Stappen <shogun_einst.0i@icloud.com>"]
 license = "MIT"
 readme = "README.md"
 edition = "2021"
-repository = "https://github.com/rhizomer/sambrs"
+repository = "https://github.com/samvdst/sambrs"
 documentation = "https://docs.rs/sambrs"
 categories = ["os::windows-apis", "filesystem"]
 keywords = ["windows", "smb", "share", "network"]
 description = """
-A tiny wrapper around `WNetAddConnection2A` and `WNetCancelConnection2A`. The
-goal is to offer an ergonomic interface to connect to an SMB network share on
-Windows.
+A tiny ergonomic wrapper around WNetAddConnection2A to conenct to SMB shares on Windows.
 """
 
 [dependencies]
