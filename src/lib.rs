@@ -1,3 +1,5 @@
+#![warn(clippy::pedantic)]
+
 //! A tiny wrapper around `WNetAddConnection2A` and `WNetCancelConnection2A`. The goal is to offer an ergonomic interface to connect to an SMB network share on Windows.
 //!
 //! Sam -> SMB -> Rust -> Samba is taken!? == sambrs
@@ -17,8 +19,6 @@
 //!     Err(e) => eprintln!("Failed to connect: {}", e),
 //! }
 //! ```
-
-#![warn(clippy::pedantic)]
 
 mod error;
 
@@ -248,9 +248,6 @@ impl SmbShare {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // NOTE: Make sure to run tests single threaded:
-    // `cargo test -- --test-threads=1`
 
     // TODO: propper integration test setup
 

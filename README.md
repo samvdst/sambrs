@@ -2,7 +2,7 @@
 
 A tiny wrapper around `WNetAddConnection2A` and `WNetCancelConnection2A`. The goal is to offer an ergonomic interface to connect to an SMB network share on Windows.
 
-Sam -> SMB -> Rust -> Samba is taken!? == sambrs
+Sam -> SMB -> Rust -> Samba is taken!? -> sambrs
 
 ## Features
 

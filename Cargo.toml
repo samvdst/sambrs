@@ -10,7 +10,7 @@ documentation = "https://docs.rs/sambrs"
 categories = ["os::windows-apis", "filesystem"]
 keywords = ["windows", "smb", "share", "network"]
 description = """
-A tiny ergonomic wrapper around WNetAddConnection2A to conenct to SMB shares on Windows.
+A tiny ergonomic wrapper around WNetAddConnection2A to connect to SMB shares on Windows.
 """
 
 [dependencies]
