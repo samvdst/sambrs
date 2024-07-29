@@ -1,6 +1,6 @@
 [package]
 name = "sambrs"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Samuel Van der Stappen <shogun_einst.0i@icloud.com>"]
 license = "MIT"
 readme = "README.md"
