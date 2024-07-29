@@ -1,6 +1,8 @@
 # Sambrs
 
-A tiny wrapper around `WNetAddConnection2A` and `WNetCancelConnection2A`. The goal is to offer an ergonomic interface to connect to an SMB network share on Windows.
+A tiny ergonomic wrapper around `WNetAddConnection2A` and
+`WNetCancelConnection2A`. The goal is to offer an easy to use interface to
+connect to SMB network shares on Windows.
 
 Sam -> SMB -> Rust -> Samba is taken!? -> sambrs
 
@@ -22,26 +24,41 @@ sambrs = "0.1"
 
 ## Usage
 
-Create an `SmbShare` with an optional local Windows mount point and connect to it.
+Instantiate an `SmbShare` with an optional local Windows mount point and establish
+a connection.
 
-You can specify if you want to persist the connection across user login sessions and if you want to connect interactively. Interactive mode will prompt the user for a password in case the password is wrong or empty.
+When calling the connect method, you have the option to persist the connection
+across user login sessions and to enable interactive mode. Interactive mode will
+block until the user either provides a correct password or cancels, resulting in
+a `Canceled` error.
 
 ```rust
 use sambrs::SmbShare;
 
 fn main() {
-    let share = SmbShare::new(r"\\server\share", "user", "pass", Some('e'));
+    let share = SmbShare::new(r"\\server\share", "user", "pass", Some('D'));
+
     match share.connect(false, false) {
-        Ok(_) => println!("Connected successfully!"),
+        Ok(()) => println!("Connected successfully!"),
         Err(e) => eprintln!("Failed to connect: {}", e),
     }
+
+    // use std::fs as if D:\ was a local directory
+    dbg!(std::fs::metadata(r"D:\").unwrap().is_dir());
 }
 ```
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for more details.
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file
+for more details.
 
 ## Special Thanks
 
-Special thanks to [Christian Visintin](https://github.com/veeso) for his informative [blog post](https://blog.veeso.dev/blog/en/how-to-access-an-smb-share-with-rust-on-windows/) on accessing SMB shares with Rust on Windows. If you need a fully-featured remote file access solution that works across multiple protocols, you should definitely check out his project [remotefs](https://github.com/veeso/remotefs-rs).
+Special thanks to [Christian Visintin](https://github.com/veeso) for his
+informative [blog
+post](https://blog.veeso.dev/blog/en/how-to-access-an-smb-share-with-rust-on-windows/)
+on accessing SMB shares with Rust on Windows. If you need a fully-featured
+remote file access solution that works across multiple protocols, you should
+definitely check out his project
+[remotefs](https://github.com/veeso/remotefs-rs).

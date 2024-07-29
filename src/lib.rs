@@ -1,23 +1,31 @@
 #![warn(clippy::pedantic)]
 
-//! A tiny wrapper around `WNetAddConnection2A` and `WNetCancelConnection2A`. The goal is to offer an ergonomic interface to connect to an SMB network share on Windows.
+//! A tiny ergonomic wrapper around `WNetAddConnection2A` and `WNetCancelConnection2A`. The goal is
+//! to offer an easy to use interface to connect to SMB network shares on Windows.
 //!
-//! Sam -> SMB -> Rust -> Samba is taken!? == sambrs
+//! Sam -> SMB -> Rust -> Samba is taken!? -> sambrs
 //!
 //! # How To
 //!
-//! Create an `SmbShare` with an optional local Windows mount point.
+//! Instantiate an `SmbShare` with an optional local Windows mount point and establish a
+//! connection.
 //!
-//! Connect to the share and specify if you want to persist the connection across user login
-//! session, and if you want to connect interactively. Interactive mode will prompt the user for a
-//! password in case the password is wrong or empty.
+//! When calling the connect method, you have the option to persist the connection across user
+//! login sessions and to enable interactive mode. Interactive mode will block until the user
+//! either provides a correct password or cancels, resulting in a `Canceled` error.
 //!
-//! ```
-//! let share = sambrs::SmbShare::new(r"\\server\share", "user", "pass", Some('D'));
+//! ```no_run
+//! use sambrs::SmbShare;
+//!
+//! let share = SmbShare::new(r"\\server\share", "user", "pass", Some('D'));
+//!
 //! match share.connect(false, false) {
-//!     Ok(_) => println!("Connected successfully!"),
+//!     Ok(()) => println!("Connected successfully!"),
 //!     Err(e) => eprintln!("Failed to connect: {}", e),
 //! }
+//!
+//! // use std::fs as if D:\ was a local directory
+//! dbg!(std::fs::metadata(r"D:\").unwrap().is_dir());
 //! ```
 
 mod error;
@@ -50,7 +58,7 @@ impl SmbShare {
     ///
     /// # Example
     ///
-    /// ```
+    /// ```no_run
     /// let share = sambrs::SmbShare::new(r"\\server.local\share", r"LOGONDOMAIN\user", "pass", None);
     /// ```
     pub fn new(
