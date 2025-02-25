@@ -34,12 +34,12 @@ pub use error::{Error, Result};
 use std::ffi::CString;
 use tracing::{debug, error, trace};
 use windows_sys::Win32::Foundation::{
-    ERROR_ACCESS_DENIED, ERROR_ALREADY_ASSIGNED, ERROR_BAD_DEVICE, ERROR_BAD_DEV_TYPE,
+    ERROR_ACCESS_DENIED, ERROR_ALREADY_ASSIGNED, ERROR_BAD_DEV_TYPE, ERROR_BAD_DEVICE,
     ERROR_BAD_NET_NAME, ERROR_BAD_PROFILE, ERROR_BAD_PROVIDER, ERROR_BAD_USERNAME, ERROR_BUSY,
     ERROR_CANCELLED, ERROR_CANNOT_OPEN_PROFILE, ERROR_DEVICE_ALREADY_REMEMBERED,
     ERROR_DEVICE_IN_USE, ERROR_EXTENDED_ERROR, ERROR_INVALID_ADDRESS, ERROR_INVALID_PARAMETER,
-    ERROR_INVALID_PASSWORD, ERROR_LOGON_FAILURE, ERROR_NOT_CONNECTED, ERROR_NO_NETWORK,
-    ERROR_NO_NET_OR_BAD_PATH, ERROR_OPEN_FILES, FALSE, NO_ERROR, TRUE,
+    ERROR_INVALID_PASSWORD, ERROR_LOGON_FAILURE, ERROR_NO_NET_OR_BAD_PATH, ERROR_NO_NETWORK,
+    ERROR_NOT_CONNECTED, ERROR_OPEN_FILES, FALSE, NO_ERROR, TRUE,
 };
 use windows_sys::Win32::NetworkManagement::WNet;
 
@@ -112,7 +112,7 @@ impl SmbShare {
             .transpose()?;
 
         let local_name = match local_name {
-            Some(ref cstring) => cstring.as_c_str().as_ptr() as *mut u8,
+            Some(ref cstring) => cstring.as_c_str().as_ptr().cast::<u8>().cast_mut(),
             None => std::ptr::null_mut(),
         };
 
@@ -141,7 +141,7 @@ impl SmbShare {
             dwType: WNet::RESOURCETYPE_DISK,
             dwUsage: 0, // ignored by WNetAddConnection2A
             lpLocalName: local_name,
-            lpRemoteName: share.as_c_str().as_ptr() as *mut u8,
+            lpRemoteName: share.as_c_str().as_ptr().cast::<u8>().cast_mut(),
             lpComment: std::ptr::null_mut(), // ignored by WNetAddConnection2A
             lpProvider: std::ptr::null_mut(), // Microsoft docs: You should set this member only if you know the network provider you want to use.
                                               // Otherwise, let the operating system determine which provider the network name maps to.
