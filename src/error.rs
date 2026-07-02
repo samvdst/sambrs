@@ -67,6 +67,10 @@ pub enum Error {
     NoNetOrBadPath,
     #[error("The network is unavailable.")]
     NoNetwork,
+    #[error(
+        "Multiple connections to a server or shared resource by the same user, using more than one user name, are not allowed. Disconnect all previous connections to the server or shared resource and try again."
+    )]
+    SessionCredentialConflict,
     #[error("The device is in use by an active process and cannot be disconnected.")]
     DeviceInUse,
     #[error(
@@ -75,6 +79,6 @@ pub enum Error {
     NotConnected,
     #[error("There are open files, and the fForce parameter is FALSE.")]
     OpenFiles,
-    #[error("Unknown error.")]
-    Other,
+    #[error("Unknown error {0}.")]
+    Other(u32),
 }
