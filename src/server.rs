@@ -558,19 +558,25 @@ pub fn sessions(
 ///
 /// `client` and `username` scope what is deleted: sessions from that
 /// computer (in UNC form, `r"\\workstation"` — see [`sessions`]), sessions
-/// of that user, or their intersection. At least one of the two is required;
-/// ending every session on the server is deliberately a separate function,
-/// [`delete_all_sessions`].
+/// of that user, or their intersection. At least one of the two is required,
+/// and an empty string does not count — netapi32 treats it like a missing
+/// filter. Ending every session on the server is deliberately a separate
+/// function, [`delete_all_sessions`].
 ///
 /// # Errors
 /// [`Error::InvalidParameter`] when both `client` and `username` are `None`
-/// (use [`delete_all_sessions`] for that), [`Error::ClientNameNotFound`] /
-/// [`Error::UserNotFound`] when nothing matches.
+/// or empty (use [`delete_all_sessions`] to end every session),
+/// [`Error::ClientNameNotFound`] / [`Error::UserNotFound`] when nothing
+/// matches.
 pub fn delete_session(
     server: Option<&str>,
     client: Option<&str>,
     username: Option<&str>,
 ) -> Result<()> {
+    // netapi32 treats an empty filter string like a null one, so empty
+    // strings must not slip past the all-sessions guard below.
+    let client = client.filter(|c| !c.is_empty());
+    let username = username.filter(|u| !u.is_empty());
     if client.is_none() && username.is_none() {
         return Err(Error::InvalidParameter);
     }
@@ -783,6 +789,22 @@ mod tests {
         assert_eq!(t.kind, ShareKind::PrintQueue);
         assert!(!t.special);
         assert!(t.temporary);
+    }
+
+    #[test]
+    fn delete_session_requires_a_nonempty_filter() {
+        // Rejected before the FFI call, so this cannot touch real sessions.
+        for (client, username) in [
+            (None, None),
+            (Some(""), None),
+            (None, Some("")),
+            (Some(""), Some("")),
+        ] {
+            assert_eq!(
+                delete_session(None, client, username).unwrap_err(),
+                Error::InvalidParameter
+            );
+        }
     }
 
     #[test]
