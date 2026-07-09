@@ -7,14 +7,17 @@ use crate::{Error, Result};
 ///
 /// The buffer is allocated with its final capacity up front so no intermediate
 /// heap copy of the data is left behind (relevant for the `zeroize` feature).
+/// The interior-NUL check runs on the `&str` before any allocation — a non-NUL
+/// char never encodes to a 0 UTF-16 unit, so it is equivalent to scanning the
+/// encoded buffer — which keeps the error path free of transient copies too.
 pub(crate) fn to_wide(s: &str) -> Result<Vec<u16>> {
+    if s.contains('\0') {
+        return Err(Error::InteriorNul);
+    }
     // A UTF-16 encoding never has more code units than the UTF-8 encoding has
     // bytes, so this capacity guarantees a single allocation.
     let mut wide: Vec<u16> = Vec::with_capacity(s.len() + 1);
     wide.extend(s.encode_utf16());
-    if wide.contains(&0) {
-        return Err(Error::InteriorNul);
-    }
     wide.push(0);
     Ok(wide)
 }
