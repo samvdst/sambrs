@@ -86,6 +86,19 @@ fn net_enum<T>(
     }
 }
 
+/// Owned `String` from a nul-terminated wide pointer; `None` when the pointer
+/// is null **or** the string is empty. netapi32 uses null and empty
+/// interchangeably for "no value", so every optional string field of the
+/// structs below normalizes both to `None`.
+///
+/// # Safety
+/// As [`from_pwstr`]: `ptr` must either be null or point to a valid
+/// nul-terminated UTF-16 string.
+unsafe fn from_pwstr_nonempty(ptr: *const u16) -> Option<String> {
+    // SAFETY: guaranteed by caller.
+    unsafe { from_pwstr(ptr) }.filter(|s| !s.is_empty())
+}
+
 /// The type of a share, unpacked from the raw `STYPE_*` value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -153,8 +166,10 @@ impl ShareKind {
 pub struct ShareInfo {
     pub name: String,
     pub share_type: ShareType,
+    /// Comment shown next to the share; `None` when absent or empty.
     pub remark: Option<String>,
-    /// Local path backing the share, e.g. `C:\data` (level 2 only).
+    /// Local path backing the share, e.g. `C:\data` (level 2 only); `None`
+    /// when absent or empty (`IPC$` has no path).
     pub path: Option<String>,
     /// Share-level permission bits, `ACCESS_*` (level 2 only).
     pub permissions: Option<u32>,
@@ -173,8 +188,8 @@ impl ShareInfo {
             Self {
                 name: from_pwstr(info.shi2_netname).unwrap_or_default(),
                 share_type: ShareType::from_raw(info.shi2_type),
-                remark: from_pwstr(info.shi2_remark).filter(|r| !r.is_empty()),
-                path: from_pwstr(info.shi2_path),
+                remark: from_pwstr_nonempty(info.shi2_remark),
+                path: from_pwstr_nonempty(info.shi2_path),
                 permissions: Some(info.shi2_permissions),
                 max_uses: Some(info.shi2_max_uses),
                 current_uses: Some(info.shi2_current_uses),
@@ -190,7 +205,7 @@ impl ShareInfo {
             Self {
                 name: from_pwstr(info.shi1_netname).unwrap_or_default(),
                 share_type: ShareType::from_raw(info.shi1_type),
-                remark: from_pwstr(info.shi1_remark).filter(|r| !r.is_empty()),
+                remark: from_pwstr_nonempty(info.shi1_remark),
                 path: None,
                 permissions: None,
                 max_uses: None,
@@ -417,7 +432,8 @@ pub fn delete_share(server: Option<&str>, name: &str) -> Result<()> {
 pub struct SessionInfo {
     /// Name of the computer that established the session.
     pub client: String,
-    /// Name of the user who established the session.
+    /// Name of the user who established the session; `None` when absent or
+    /// empty.
     pub username: Option<String>,
     /// Number of files, devices, and pipes opened during the session
     /// (level 1 only).
@@ -438,7 +454,7 @@ impl SessionInfo {
         unsafe {
             Self {
                 client: from_pwstr(info.sesi1_cname).unwrap_or_default(),
-                username: from_pwstr(info.sesi1_username),
+                username: from_pwstr_nonempty(info.sesi1_username),
                 open_files: Some(info.sesi1_num_opens),
                 active: Duration::from_secs(u64::from(info.sesi1_time)),
                 idle: Duration::from_secs(u64::from(info.sesi1_idle_time)),
@@ -454,7 +470,7 @@ impl SessionInfo {
         unsafe {
             Self {
                 client: from_pwstr(info.sesi10_cname).unwrap_or_default(),
-                username: from_pwstr(info.sesi10_username),
+                username: from_pwstr_nonempty(info.sesi10_username),
                 open_files: None,
                 active: Duration::from_secs(u64::from(info.sesi10_time)),
                 idle: Duration::from_secs(u64::from(info.sesi10_idle_time)),
@@ -597,7 +613,8 @@ pub struct OpenFile {
     /// Server-assigned identifier; pass to [`close_file`].
     pub id: u32,
     pub path: String,
-    /// The user (or computer, for null sessions) that opened it.
+    /// The user (or computer, for null sessions) that opened it; `None` when
+    /// absent or empty.
     pub username: Option<String>,
     /// Number of locks held on the file.
     pub locks: u32,
@@ -659,7 +676,7 @@ pub fn open_files(
                 out.push(OpenFile {
                     id: info.fi3_id,
                     path: from_pwstr(info.fi3_pathname).unwrap_or_default(),
-                    username: from_pwstr(info.fi3_username),
+                    username: from_pwstr_nonempty(info.fi3_username),
                     locks: info.fi3_num_locks,
                     permissions: info.fi3_permissions,
                 });
@@ -698,9 +715,10 @@ pub struct ShareConnection {
     pub users: u32,
     /// How long the connection has been established.
     pub active: Duration,
+    /// User on this connection; `None` when absent or empty.
     pub username: Option<String>,
     /// Depending on the qualifier passed to [`connections`]: the share name
-    /// or the client computer name.
+    /// or the client computer name. `None` when absent or empty.
     pub name: Option<String>,
 }
 
@@ -741,8 +759,8 @@ pub fn connections(server: Option<&str>, qualifier: &str) -> Result<Vec<ShareCon
                     open_files: info.coni1_num_opens,
                     users: info.coni1_num_users,
                     active: Duration::from_secs(u64::from(info.coni1_time)),
-                    username: from_pwstr(info.coni1_username),
-                    name: from_pwstr(info.coni1_netname),
+                    username: from_pwstr_nonempty(info.coni1_username),
+                    name: from_pwstr_nonempty(info.coni1_netname),
                 });
             }
         },
