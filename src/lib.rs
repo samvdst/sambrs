@@ -39,7 +39,8 @@ use windows_sys::Win32::Foundation::{
     ERROR_CANCELLED, ERROR_CANNOT_OPEN_PROFILE, ERROR_DEVICE_ALREADY_REMEMBERED,
     ERROR_DEVICE_IN_USE, ERROR_EXTENDED_ERROR, ERROR_INVALID_ADDRESS, ERROR_INVALID_PARAMETER,
     ERROR_INVALID_PASSWORD, ERROR_LOGON_FAILURE, ERROR_NO_NET_OR_BAD_PATH, ERROR_NO_NETWORK,
-    ERROR_NOT_CONNECTED, ERROR_OPEN_FILES, FALSE, NO_ERROR, TRUE,
+    ERROR_NOT_CONNECTED, ERROR_OPEN_FILES, ERROR_SESSION_CREDENTIAL_CONFLICT, FALSE, NO_ERROR,
+    TRUE,
 };
 use windows_sys::Win32::NetworkManagement::WNet;
 
@@ -184,7 +185,8 @@ impl SmbShare {
             ERROR_LOGON_FAILURE => Err(Error::LogonFailure),
             ERROR_NO_NET_OR_BAD_PATH => Err(Error::NoNetOrBadPath),
             ERROR_NO_NETWORK => Err(Error::NoNetwork),
-            _ => Err(Error::Other),
+            ERROR_SESSION_CREDENTIAL_CONFLICT => Err(Error::SessionCredentialConflict),
+            _ => Err(Error::Other(connection_result)),
         };
 
         match connection_result {
@@ -241,7 +243,7 @@ impl SmbShare {
             ERROR_EXTENDED_ERROR => Err(Error::ExtendedError),
             ERROR_NOT_CONNECTED => Err(Error::NotConnected),
             ERROR_OPEN_FILES => Err(Error::OpenFiles),
-            _ => Err(Error::Other),
+            _ => Err(Error::Other(disconnect_result)),
         };
 
         match disconnect_result {
