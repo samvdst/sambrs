@@ -542,17 +542,39 @@ pub fn sessions(
 ///
 /// `client` and `username` scope what is deleted: sessions from that
 /// computer (in UNC form, `r"\\workstation"` — see [`sessions`]), sessions
-/// of that user, or their intersection. **Both `None` ends every session on
-/// the server.**
+/// of that user, or their intersection. At least one of the two is required;
+/// ending every session on the server is deliberately a separate function,
+/// [`delete_all_sessions`].
 ///
 /// # Errors
-/// [`Error::ClientNameNotFound`] / [`Error::UserNotFound`] when nothing
-/// matches.
+/// [`Error::InvalidParameter`] when both `client` and `username` are `None`
+/// (use [`delete_all_sessions`] for that), [`Error::ClientNameNotFound`] /
+/// [`Error::UserNotFound`] when nothing matches.
 pub fn delete_session(
     server: Option<&str>,
     client: Option<&str>,
     username: Option<&str>,
 ) -> Result<()> {
+    if client.is_none() && username.is_none() {
+        return Err(Error::InvalidParameter);
+    }
+    session_del(server, client, username)
+}
+
+/// End **every** SMB session on a server via `NetSessionDel` with no client
+/// or user filter. Requires administrative rights on the target server.
+///
+/// **This disconnects all clients of the server at once**, without notifying
+/// them — open files may lose data. For anything more targeted, use
+/// [`delete_session`].
+///
+/// # Errors
+/// [`Error::AccessDenied`] without administrative rights.
+pub fn delete_all_sessions(server: Option<&str>) -> Result<()> {
+    session_del(server, None, None)
+}
+
+fn session_del(server: Option<&str>, client: Option<&str>, username: Option<&str>) -> Result<()> {
     let server_w = server.map(to_wide).transpose()?;
     let client_w = client.map(to_wide).transpose()?;
     let user_w = username.map(to_wide).transpose()?;

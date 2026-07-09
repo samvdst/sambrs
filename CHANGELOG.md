@@ -42,7 +42,9 @@ migration table in the README.
 - `server` module (netapi32): `shares`, `share_info`, `add_share`,
   `delete_share`, `sessions`, `delete_session`, `open_files`, `close_file`,
   `connections` — with automatic fallback to lower information levels when
-  not administrator.
+  not administrator. `delete_session` requires a client and/or user filter
+  (`InvalidParameter` otherwise); ending every session on a server is the
+  separate, explicit `delete_all_sessions`.
 - `Error::raw_os_error` and `From<Error> for std::io::Error`.
 - Cargo features: `tracing` (now optional!) and `zeroize` (wipe password
   buffers on drop).
