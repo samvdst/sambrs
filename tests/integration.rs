@@ -364,10 +364,11 @@ fn server_open_files_are_listable_and_closable() {
     let file = std::fs::File::create(path).unwrap();
 
     let open = server::open_files(None, None, None).unwrap();
-    let ours = open.iter().find(|f| f.path.contains("sambrs-open-file"));
-    if let Some(ours) = ours {
-        server::close_file(None, ours.id).unwrap();
-    }
+    let ours = open
+        .iter()
+        .find(|f| f.path.contains("sambrs-open-file"))
+        .unwrap_or_else(|| panic!("our open file not listed by NetFileEnum; listed: {open:?}"));
+    server::close_file(None, ours.id).unwrap();
 
     drop(file);
     let _ = std::fs::remove_file(path);
