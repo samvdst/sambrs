@@ -9,14 +9,18 @@
 //! SAMBRS_TEST_PASSWORD=...
 //! SAMBRS_TEST_LOCAL=1   # only if the share is on THIS machine and the test
 //!                       # process can administer it (enables server:: tests)
+//! RUST_TEST_THREADS=1   # the tests mount real drive letters and enumerate
+//!                       # live connections; they must not run concurrently
 //!
 //! cargo test -- --include-ignored
 //! ```
 //!
 //! CI provisions `\\localhost\sambrs-test` with a dedicated local user and
 //! runs the full suite; see `.github/workflows/ci.yml`. Drive letters S-Z are
-//! used by these tests and must be free. Tests run single-threaded (see
-//! `.cargo/config.toml`).
+//! used by these tests and must be free. In a git checkout,
+//! `.cargo/config.toml` sets `RUST_TEST_THREADS=1` for you; that file is not
+//! part of the packaged crate, so set it yourself when running from a
+//! published copy.
 #![cfg(windows)]
 
 use sambrs::{

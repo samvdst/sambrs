@@ -13,6 +13,15 @@ keywords = ["windows", "smb", "share", "network"]
 description = """
 Safe and flexible bindings for Windows SMB share operations: connect and disconnect network shares (WNet), query and enumerate connections and remote shares, and administer server-side shares, sessions, and open files (netapi32).
 """
+# Allowlist: ship only the crate itself, not repo/CI/agent tooling.
+include = [
+  "/src",
+  "/tests",
+  "/Cargo.toml",
+  "/README.md",
+  "/CHANGELOG.md",
+  "/LICENSE",
+]
 
 [features]
 default = []

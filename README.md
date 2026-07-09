@@ -115,6 +115,10 @@ SAMBRS_TEST_LOCAL=1   # only if the share is local; enables the server:: tests
 cargo test -- --include-ignored
 ```
 
+The tests mount real drive letters and must run single-threaded: a git
+checkout sets `RUST_TEST_THREADS=1` via `.cargo/config.toml`; set it yourself
+when running from a packaged copy of the crate.
+
 CI provisions a local user plus `\\localhost\sambrs-test` on a Windows runner
 and runs the whole suite against it on every push.
 
