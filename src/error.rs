@@ -35,76 +35,94 @@ pub enum Error {
     InvalidDriveLetter(char),
 
     // ── WNet connect/disconnect ────────────────────────────────────────────
-    #[error("The caller does not have access to the network resource.")]
+    /// The caller does not have access to the network resource.
+    #[error("access to the network resource was denied")]
     AccessDenied,
-    #[error(
-        "The local device specified by the lpLocalName member is already connected to a network resource."
-    )]
+    /// The local device is already connected to a network resource.
+    #[error("the local device is already connected to a network resource")]
     AlreadyAssigned,
-    #[error("The type of local device and the type of network resource do not match.")]
+    /// The type of the local device and the type of the network resource do
+    /// not match (e.g. mounting a printer share on a drive letter).
+    #[error("the local device type and the network resource type do not match")]
     BadDevType,
-    #[error(
-        "The specified device name is not valid. This error is returned if the lpLocalName member of the NETRESOURCE structure pointed to by the lpNetResource parameter specifies a device that is not redirectable."
-    )]
+    /// Returned when the local device name names a device that cannot be
+    /// redirected to a network resource.
+    #[error("the specified device name is not valid")]
     BadDevice,
-    #[error(
-        "The network name cannot be found. This value is returned if the lpRemoteName member of the NETRESOURCE structure pointed to by the lpNetResource parameter specifies a resource that is not acceptable to any network resource provider, either because the resource name is empty, not valid, or because the named resource cannot be located."
-    )]
+    /// Returned when no network resource provider accepts the remote name:
+    /// it is empty, malformed, or names a resource that cannot be located.
+    #[error("the network name cannot be found")]
     BadNetName,
-    #[error("The user profile is in an incorrect format.")]
+    /// The user profile is in an incorrect format.
+    #[error("the user profile is in an incorrect format")]
     BadProfile,
-    #[error(
-        "The specified network provider name is not valid. This error is returned if the lpProvider member of the NETRESOURCE structure pointed to by the lpNetResource parameter specifies a value that does not match any network provider."
-    )]
+    /// Returned when the configured provider name does not match any network
+    /// provider installed on the system.
+    #[error("the specified network provider name is not valid")]
     BadProvider,
-    #[error("The specified user name is not valid.")]
+    /// The specified user name is not valid.
+    #[error("the specified user name is not valid")]
     BadUsername,
-    #[error("The router or provider is busy, possibly initializing. The caller should retry.")]
+    /// The router or provider is busy, possibly still initializing. The
+    /// caller should retry.
+    #[error("the router or provider is busy; retry the operation")]
     Busy,
-    #[error(
-        "The attempt to make the connection was canceled by the user through a dialog box from one of the network resource providers, or by a called resource."
-    )]
+    /// The connection attempt was canceled by the user through a provider
+    /// dialog box, or by a called resource.
+    #[error("the connection attempt was canceled")]
     Cancelled,
-    #[error("The system is unable to open the user profile to process persistent connections.")]
+    /// The system is unable to open the user profile to process persistent
+    /// connections.
+    #[error("the user profile cannot be opened to process persistent connections")]
     CannotOpenProfile,
-    #[error(
-        "The local device name has a remembered connection to another network resource. This error is returned if an entry for the device specified by lpLocalName member of the NETRESOURCE structure pointed to by the lpNetResource parameter specifies a value that is already in the user profile for a different connection than that specified in the lpNetResource parameter."
-    )]
+    /// Returned when the user profile already remembers a connection for this
+    /// local device name that points to a different network resource.
+    #[error("the local device name has a remembered connection to another network resource")]
     DeviceAlreadyRemembered,
-    #[error(
-        "An attempt was made to access an invalid address. This error is returned if the dwFlags parameter specifies a value of CONNECT_REDIRECT, but the lpLocalName member of the NETRESOURCE structure pointed to by the lpNetResource parameter was unspecified."
-    )]
+    /// Returned when connecting with redirection (`CONNECT_REDIRECT`, see
+    /// [`ConnectOptions::redirect`](crate::ConnectOptions::redirect)) without
+    /// a local device name to redirect to.
+    #[error("an attempt was made to access an invalid address")]
     InvalidAddress,
-    #[error(
-        "A parameter is incorrect. This error is returned if the dwType member of the NETRESOURCE structure pointed to by the lpNetResource parameter specifies a value other than RESOURCETYPE_DISK, RESOURCETYPE_PRINT, or RESOURCETYPE_ANY. This error is also returned if the dwFlags parameter specifies an incorrect or unknown value."
-    )]
+    /// A parameter is incorrect — for `WNet` connections, a resource type
+    /// other than disk, print, or any, or an incorrect or unknown flag value.
+    #[error("a parameter is incorrect")]
     InvalidParameter,
-    #[error("The specified password is invalid and the CONNECT_INTERACTIVE flag is not set.")]
+    /// The specified password is invalid (and, for connects, the interactive
+    /// flag is not set, so Windows could not prompt for a correct one).
+    #[error("the specified password is invalid")]
     InvalidPassword,
-    #[error("A logon failure because of an unknown user name or a bad password.")]
+    /// Logon failure because of an unknown user name or a bad password.
+    #[error("logon failed: unknown user name or bad password")]
     LogonFailure,
-    #[error(
-        "No network provider accepted the given network path. This error is returned if no network provider recognized the lpRemoteName member of the NETRESOURCE structure pointed to by the lpNetResource parameter."
-    )]
+    /// No network provider accepted the given network path — none of them
+    /// recognized the remote name.
+    #[error("no network provider accepted the given network path")]
     NoNetOrBadPath,
-    #[error("The network is unavailable.")]
+    /// The network is unavailable.
+    #[error("the network is unavailable")]
     NoNetwork,
-    #[error(
-        "Multiple connections to a server or shared resource by the same user, using more than one user name, are not allowed. Disconnect all previous connections to the server or shared resource and try again."
-    )]
+    /// Windows does not allow the same user to hold connections to one server
+    /// or share under more than one user name. Disconnect all previous
+    /// connections to the server or share and try again.
+    #[error("a connection to the server or share already exists under different credentials")]
     SessionCredentialConflict,
-    #[error("The device is in use by an active process and cannot be disconnected.")]
+    /// The device is in use by an active process and cannot be disconnected.
+    #[error("the device is in use by an active process and cannot be disconnected")]
     DeviceInUse,
-    #[error(
-        "The name specified by the lpName parameter is not a redirected device, or the system is not currently connected to the device specified by the parameter."
-    )]
+    /// The name is not a redirected device, or the system is not currently
+    /// connected to it.
+    #[error("the name is not a redirected device or a currently connected resource")]
     NotConnected,
-    #[error("There are open files, and the fForce parameter is FALSE.")]
+    /// There are open files on the connection and the disconnect was not
+    /// forced (see
+    /// [`DisconnectOptions::force`](crate::DisconnectOptions::force)).
+    #[error("there are open files and the disconnect was not forced")]
     OpenFiles,
     /// A network-specific error reported by the network provider, resolved via
     /// `WNetGetLastErrorW`. `code` is the provider's own error code.
     #[error(
-        "A network-specific error occurred (code {code}): {description} [provider: {provider}]"
+        "a network-specific error occurred (code {code}): {description} [provider: {provider}]"
     )]
     ExtendedError {
         code: u32,
@@ -113,31 +131,42 @@ pub enum Error {
     },
 
     // ── introspection ──────────────────────────────────────────────────────
-    #[error(
-        "The device is not currently connected, but it is a remembered (persistent) connection."
-    )]
+    /// The device is not currently connected, but it is a remembered
+    /// (persistent) connection.
+    #[error("the device is not connected, but it is a remembered connection")]
     ConnectionUnavailable,
-    #[error("The request is not supported for this resource.")]
+    /// The request is not supported for this resource.
+    #[error("the request is not supported for this resource")]
     NotSupported,
-    #[error("The specified device does not exist.")]
+    /// The specified device does not exist.
+    #[error("the specified device does not exist")]
     DeviceNotFound,
 
     // ── netapi32 share/session/file administration ─────────────────────────
-    #[error("The share name does not exist on this server.")]
+    /// The share name does not exist on the target server.
+    #[error("the share name does not exist on this server")]
     NetNameNotFound,
-    #[error("The share name is already in use on this server.")]
+    /// The share name is already in use on the target server.
+    #[error("the share name is already in use on this server")]
     DuplicateShare,
-    #[error("The device or directory does not exist.")]
+    /// The device or directory backing the share does not exist.
+    #[error("the device or directory does not exist")]
     UnknownDeviceOrDirectory,
-    #[error("A session does not exist with that computer name.")]
+    /// No session exists with the given computer name.
+    #[error("no session exists with that computer name")]
     ClientNameNotFound,
-    #[error("The user name could not be found.")]
+    /// The user name could not be found.
+    #[error("the user name could not be found")]
     UserNotFound,
-    #[error("There is not an open file with that identification number.")]
+    /// No open file with the given identification number exists.
+    #[error("no open file with that identification number exists")]
     FileIdNotFound,
-    #[error("The system call level is not correct.")]
+    /// The system call level is not correct — the requested information level
+    /// is not supported.
+    #[error("the requested information level is not supported")]
     InvalidLevel,
-    #[error("Not enough memory is available to complete the operation.")]
+    /// Not enough memory is available to complete the operation.
+    #[error("not enough memory is available to complete the operation")]
     NotEnoughMemory,
 
     /// Any status code without a dedicated variant. The message is resolved
