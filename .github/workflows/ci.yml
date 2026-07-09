@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Integration tests (Windows, real SMB share)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Provision a local user and SMB share
+        shell: pwsh
+        run: |
+          $password = ConvertTo-SecureString 'Sambrs-CI-Pass-1!' -AsPlainText -Force
+          New-LocalUser -Name 'smbtest' -Password $password -PasswordNeverExpires | Out-Null
+          New-Item -ItemType Directory -Path 'C:\sambrs-share' | Out-Null
+          New-SmbShare -Name 'sambrs-test' -Path 'C:\sambrs-share' -FullAccess 'smbtest' | Out-Null
+          icacls 'C:\sambrs-share' /grant 'smbtest:(OI)(CI)F' | Out-Null
+          "SAMBRS_TEST_USERNAME=$env:COMPUTERNAME\smbtest" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Unit + integration tests (all features)
+        run: cargo test --all-features -- --include-ignored
+        env:
+          SAMBRS_TEST_SHARE: \\localhost\sambrs-test
+          SAMBRS_TEST_PASSWORD: Sambrs-CI-Pass-1!
+          SAMBRS_TEST_LOCAL: '1'
+
+      - name: Unit tests (no default features)
+        run: cargo test
+
+  lint:
+    name: Lint, docs, cross-target checks (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: rustfmt
+        run: cargo fmt --check
+
+      - name: clippy (pedantic is enforced in the crate root)
+        run: cargo clippy --target x86_64-pc-windows-msvc --all-targets --all-features -- -D warnings
+
+      - name: rustdoc
+        run: cargo doc --target x86_64-pc-windows-msvc --all-features --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+      - name: crate is a well-behaved no-op on non-Windows hosts
+        run: cargo check --all-features
