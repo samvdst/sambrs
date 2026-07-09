@@ -1,9 +1,68 @@
 use crate::error::{Error, Result, check_wnet};
 use crate::options::{ConnectOptions, DisconnectOptions, DriveLetter, ResourceType};
-use crate::strings::{from_wide_buf, len_u32, opt_ptr, secret_ptr, to_wide, to_wide_secret};
+use crate::strings::{
+    WideSecret, from_wide_buf, len_u32, opt_ptr, secret_ptr, to_wide, to_wide_secret,
+};
 use crate::trace::{debug, trace};
 use windows_sys::Win32::Foundation::ERROR_MORE_DATA;
 use windows_sys::Win32::NetworkManagement::WNet;
+
+/// The wide-string buffers and resource type for one connect call, converted
+/// from an [`SmbShare`].
+///
+/// Owning them in one struct pins down the borrow discipline: the struct must
+/// outlive the FFI call, because every pointer produced by [`Self::resource`],
+/// [`Self::password_ptr`], and [`Self::username_ptr`] borrows from the
+/// buffers owned here.
+struct ConnectArgs {
+    remote: Vec<u16>,
+    local: Option<Vec<u16>>,
+    provider: Option<Vec<u16>>,
+    username: Option<Vec<u16>>,
+    password: Option<WideSecret>,
+    resource_type: ResourceType,
+}
+
+impl ConnectArgs {
+    fn new(share: &SmbShare) -> Result<Self> {
+        Ok(Self {
+            remote: to_wide(&share.remote)?,
+            local: share.local.as_deref().map(to_wide).transpose()?,
+            provider: share.provider.as_deref().map(to_wide).transpose()?,
+            username: share.username.as_deref().map(to_wide).transpose()?,
+            password: share.password.as_deref().map(to_wide_secret).transpose()?,
+            resource_type: share.resource_type,
+        })
+    }
+
+    /// The `NETRESOURCEW` handed to `WNetAddConnection2W` /
+    /// `WNetUseConnectionW`. Its pointers borrow from `self`.
+    // https://learn.microsoft.com/en-us/windows/win32/api/winnetwk/ns-winnetwk-netresourcew
+    fn resource(&self) -> WNet::NETRESOURCEW {
+        WNet::NETRESOURCEW {
+            dwScope: 0, // ignored by WNetAddConnection2W / WNetUseConnectionW
+            dwType: self.resource_type.to_dword(),
+            dwDisplayType: 0, // ignored, as dwScope
+            dwUsage: 0,       // ignored, as dwScope
+            lpLocalName: opt_ptr(self.local.as_deref()),
+            lpRemoteName: self.remote.as_ptr().cast_mut(),
+            lpComment: std::ptr::null_mut(), // ignored, as dwScope
+            lpProvider: opt_ptr(self.provider.as_deref()),
+        }
+    }
+
+    /// Password pointer for the call (null when no password is set); borrows
+    /// from `self`.
+    fn password_ptr(&self) -> *const u16 {
+        secret_ptr(self.password.as_ref())
+    }
+
+    /// User-name pointer for the call (null when no user name is set);
+    /// borrows from `self`.
+    fn username_ptr(&self) -> *mut u16 {
+        opt_ptr(self.username.as_deref())
+    }
+}
 
 /// A remote SMB share, optionally redirected to a local device.
 ///
@@ -127,34 +186,19 @@ impl SmbShare {
     /// # Errors
     /// See [`Error`].
     pub fn connect_raw(&self, flags: u32) -> Result<()> {
-        let remote = to_wide(&self.remote)?;
-        let local = self.local.as_deref().map(to_wide).transpose()?;
-        let provider = self.provider.as_deref().map(to_wide).transpose()?;
-        let username = self.username.as_deref().map(to_wide).transpose()?;
-        let password = self.password.as_deref().map(to_wide_secret).transpose()?;
-
-        // https://learn.microsoft.com/en-us/windows/win32/api/winnetwk/ns-winnetwk-netresourcew
-        let resource = WNet::NETRESOURCEW {
-            dwScope: 0, // ignored by WNetAddConnection2W
-            dwType: self.resource_type.to_dword(),
-            dwDisplayType: 0, // ignored by WNetAddConnection2W
-            dwUsage: 0,       // ignored by WNetAddConnection2W
-            lpLocalName: opt_ptr(local.as_deref()),
-            lpRemoteName: remote.as_ptr().cast_mut(),
-            lpComment: std::ptr::null_mut(), // ignored by WNetAddConnection2W
-            lpProvider: opt_ptr(provider.as_deref()),
-        };
+        let args = ConnectArgs::new(self)?;
+        let resource = args.resource();
 
         trace!("connecting to {} with flags {flags:#x}", self.remote);
 
         // SAFETY: all pointers in `resource` and the credential pointers stay
-        // valid for the duration of the call — they borrow from the wide
-        // buffers bound above, which live until the end of this function.
+        // valid for the duration of the call — they borrow from the buffers
+        // owned by `args`, which lives until the end of this function.
         let status = unsafe {
             WNet::WNetAddConnection2W(
                 &raw const resource,
-                secret_ptr(password.as_ref()),
-                opt_ptr(username.as_deref()),
+                args.password_ptr(),
+                args.username_ptr(),
                 flags,
             )
         };
@@ -187,22 +231,8 @@ impl SmbShare {
     /// # Errors
     /// See [`Error`].
     pub fn connect_auto_raw(&self, flags: u32) -> Result<String> {
-        let remote = to_wide(&self.remote)?;
-        let local = self.local.as_deref().map(to_wide).transpose()?;
-        let provider = self.provider.as_deref().map(to_wide).transpose()?;
-        let username = self.username.as_deref().map(to_wide).transpose()?;
-        let password = self.password.as_deref().map(to_wide_secret).transpose()?;
-
-        let resource = WNet::NETRESOURCEW {
-            dwScope: 0,
-            dwType: self.resource_type.to_dword(),
-            dwDisplayType: 0,
-            dwUsage: 0,
-            lpLocalName: opt_ptr(local.as_deref()),
-            lpRemoteName: remote.as_ptr().cast_mut(),
-            lpComment: std::ptr::null_mut(),
-            lpProvider: opt_ptr(provider.as_deref()),
-        };
+        let args = ConnectArgs::new(self)?;
+        let resource = args.resource();
 
         trace!("auto-connecting to {} with flags {flags:#x}", self.remote);
 
@@ -211,13 +241,15 @@ impl SmbShare {
         for _ in 0..2 {
             let mut size = len_u32(access_name.len());
             let mut result = 0u32;
-            // SAFETY: as in `connect_raw`; `access_name` outlives the call.
+            // SAFETY: as in `connect_raw` — `args` (which every pointer in
+            // `resource` and the credential pointers borrow from) and
+            // `access_name` outlive the call.
             let status = unsafe {
                 WNet::WNetUseConnectionW(
                     std::ptr::null_mut(), // no owner window for credential dialogs
                     &raw const resource,
-                    secret_ptr(password.as_ref()),
-                    opt_ptr(username.as_deref()),
+                    args.password_ptr(),
+                    args.username_ptr(),
                     flags,
                     access_name.as_mut_ptr(),
                     &raw mut size,
