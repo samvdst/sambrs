@@ -32,7 +32,7 @@ mod error;
 
 pub use error::{Error, Result};
 use std::ffi::CString;
-use tracing::{debug, error, trace};
+use tracing::{debug, trace};
 use windows_sys::Win32::Foundation::{
     ERROR_ACCESS_DENIED, ERROR_ALREADY_ASSIGNED, ERROR_BAD_DEV_TYPE, ERROR_BAD_DEVICE,
     ERROR_BAD_NET_NAME, ERROR_BAD_PROFILE, ERROR_BAD_PROVIDER, ERROR_BAD_USERNAME, ERROR_BUSY,
@@ -191,7 +191,7 @@ impl SmbShare {
             Ok(()) => {
                 trace!("Successfully connected");
             }
-            Err(ref e) => error!("Connection failed: {e}"),
+            Err(ref e) => trace!("Connection failed: {e}"),
         };
 
         connection_result
@@ -246,7 +246,7 @@ impl SmbShare {
 
         match disconnect_result {
             Ok(()) => trace!("Successfully disconnected"),
-            Err(ref e) => error!("Disconnect failed: {e}"),
+            Err(ref e) => trace!("Disconnect failed: {e}"),
         }
 
         disconnect_result
