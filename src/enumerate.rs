@@ -105,7 +105,10 @@ impl Resources {
     fn fill(&mut self) -> Result<()> {
         // 16 KiB, u64 elements to keep NETRESOURCEW-aligned.
         let mut buf = vec![0u64; 2048];
-        loop {
+        // Bounded retries as a defensive measure against a misbehaving
+        // provider that keeps demanding a bigger buffer (mirrors the cap in
+        // `query::wide_out`).
+        for _ in 0..4 {
             let mut count = u32::MAX; // as many entries as fit
             let mut size = len_u32(buf.len() * size_of::<u64>());
             // SAFETY: `buf` outlives the call; `size` is its size in bytes.
@@ -120,6 +123,15 @@ impl Resources {
             match status {
                 NO_ERROR => {
                     trace!("WNetEnumResourceW returned {count} entries");
+                    // A zero-entry success is out of contract (the API
+                    // reports the end via ERROR_NO_MORE_ITEMS); treat it as
+                    // the end of the enumeration rather than re-asking a
+                    // misbehaving provider forever.
+                    if count == 0 {
+                        trace!("zero-entry success; treating as end of enumeration");
+                        self.finished = true;
+                        return Ok(());
+                    }
                     // SAFETY: on success the buffer starts with `count`
                     // NETRESOURCEW entries; the strings they point to live in
                     // `buf` and are copied out immediately by `from_raw`.
@@ -145,6 +157,7 @@ impl Resources {
                 code => return Err(Error::from_status(code)),
             }
         }
+        Err(Error::Other(ERROR_MORE_DATA))
     }
 }
 
