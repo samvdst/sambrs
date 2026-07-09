@@ -86,6 +86,9 @@ pub enum Error {
     InvalidAddress,
     /// A parameter is incorrect — for `WNet` connections, a resource type
     /// other than disk, print, or any, or an incorrect or unknown flag value.
+    /// Also synthesized without a Windows call by
+    /// [`server::delete_session`](crate::server::delete_session) when neither
+    /// a client nor a user filter is given.
     #[error("a parameter is incorrect")]
     InvalidParameter,
     /// The specified password is invalid (and, for connects, the interactive
@@ -225,11 +228,14 @@ impl Error {
         }
     }
 
-    /// The underlying Windows error code, when this error originated from a
-    /// Windows API call.
+    /// The Windows error code this error corresponds to.
     ///
-    /// Returns `None` for input-validation errors that never reached the OS
-    /// ([`Error::InteriorNul`], [`Error::InvalidDriveLetter`]). For
+    /// Returns `None` for input-validation errors that have no Windows code
+    /// ([`Error::InteriorNul`], [`Error::InvalidDriveLetter`]). The code
+    /// usually comes from a failed Windows API call, but sambrs synthesizes
+    /// [`Error::InvalidParameter`] for some rejected inputs (see
+    /// [`server::delete_session`](crate::server::delete_session)); it still
+    /// reports the matching `ERROR_INVALID_PARAMETER`. For
     /// [`Error::ExtendedError`] this is `ERROR_EXTENDED_ERROR` (1208); the
     /// provider-specific code is in the variant itself.
     #[must_use]
