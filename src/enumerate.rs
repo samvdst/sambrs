@@ -82,6 +82,9 @@ impl NetResource {
 pub struct Resources {
     handle: HANDLE,
     batch: VecDeque<NetResource>,
+    /// Enumeration buffer, reused (with any growth) across [`Self::fill`]
+    /// batches; `u64` elements to keep it `NETRESOURCEW`-aligned.
+    buf: Vec<u64>,
     finished: bool,
 }
 
@@ -106,20 +109,19 @@ impl Iterator for Resources {
 
 impl Resources {
     fn fill(&mut self) -> Result<()> {
-        // 16 KiB, u64 elements to keep NETRESOURCEW-aligned.
-        let mut buf = vec![0u64; 2048];
         // Bounded retries as a defensive measure against a misbehaving
         // provider that keeps demanding a bigger buffer (mirrors the cap in
         // `query::wide_out`).
         for _ in 0..4 {
             let mut count = u32::MAX; // as many entries as fit
-            let mut size = len_u32(buf.len() * size_of::<u64>());
-            // SAFETY: `buf` outlives the call; `size` is its size in bytes.
+            let mut size = len_u32(self.buf.len() * size_of::<u64>());
+            // SAFETY: `self.buf` outlives the call; `size` is its size in
+            // bytes.
             let status = unsafe {
                 WNet::WNetEnumResourceW(
                     self.handle,
                     &raw mut count,
-                    buf.as_mut_ptr().cast(),
+                    self.buf.as_mut_ptr().cast(),
                     &raw mut size,
                 )
             };
@@ -137,10 +139,11 @@ impl Resources {
                     }
                     // SAFETY: on success the buffer starts with `count`
                     // NETRESOURCEW entries; the strings they point to live in
-                    // `buf` and are copied out immediately by `from_raw`.
+                    // `self.buf` and are copied out immediately by
+                    // `from_raw`, before the buffer is reused.
                     let entries = unsafe {
                         std::slice::from_raw_parts(
-                            buf.as_ptr().cast::<WNet::NETRESOURCEW>(),
+                            self.buf.as_ptr().cast::<WNet::NETRESOURCEW>(),
                             count as usize,
                         )
                     };
@@ -155,7 +158,7 @@ impl Resources {
                 // Buffer too small for a single entry; `size` holds the
                 // required size in bytes.
                 ERROR_MORE_DATA => {
-                    buf = vec![0u64; (size as usize).div_ceil(size_of::<u64>())];
+                    self.buf = vec![0u64; (size as usize).div_ceil(size_of::<u64>())];
                 }
                 ERROR_EXTENDED_ERROR => return Err(wnet_extended_error()),
                 code => return Err(Error::from_status(code)),
@@ -207,6 +210,7 @@ fn open(
         NO_ERROR => Ok(Resources {
             handle,
             batch: VecDeque::new(),
+            buf: vec![0u64; 2048], // 16 KiB to start; grows on demand
             finished: false,
         }),
         ERROR_EXTENDED_ERROR => Err(wnet_extended_error()),
