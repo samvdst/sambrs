@@ -61,7 +61,11 @@ migration table in the README.
   runners; clippy/rustfmt/rustdoc gates; MSRV (1.85) build check.
 - The `server` enumeration loop fails with `Error::Other(ERROR_MORE_DATA)`
   instead of spinning forever when a malformed server keeps reporting
-  `ERROR_MORE_DATA` without delivering entries or terminating.
+  `ERROR_MORE_DATA` without delivering entries or terminating. Similarly,
+  `connect_auto` sizes its access-name buffer to fit any real access name up
+  front and fails instead of retrying: Windows leaves undocumented whether a
+  call that failed with `ERROR_MORE_DATA` already established the
+  connection, so a retry could create a second one.
 
 ### Changed
 

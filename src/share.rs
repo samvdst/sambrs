@@ -4,7 +4,6 @@ use crate::strings::{
     WideSecret, from_wide_buf, len_u32, opt_ptr, secret_ptr, to_wide, to_wide_secret,
 };
 use crate::trace::{debug, trace};
-use windows_sys::Win32::Foundation::ERROR_MORE_DATA;
 use windows_sys::Win32::NetworkManagement::WNet;
 
 /// The wide-string buffers and resource type for one connect call, converted
@@ -241,35 +240,35 @@ impl SmbShare {
 
         trace!("auto-connecting to {} with flags {flags:#x}", self.remote);
 
-        let mut access_name = vec![0u16; 1024];
-        // One retry with the size Windows asked for.
-        for _ in 0..2 {
-            let mut size = len_u32(access_name.len());
-            let mut result = 0u32;
-            // SAFETY: as in `connect_raw` — `args` (which every pointer in
-            // `resource` and the credential pointers borrow from) and
-            // `access_name` outlive the call.
-            let status = unsafe {
-                WNet::WNetUseConnectionW(
-                    std::ptr::null_mut(), // no owner window for credential dialogs
-                    &raw const resource,
-                    args.password_ptr(),
-                    args.username_ptr(),
-                    flags,
-                    access_name.as_mut_ptr(),
-                    &raw mut size,
-                    &raw mut result,
-                )
-            };
-            debug!("WNetUseConnectionW returned {status}, result {result:#x}");
-            if status == ERROR_MORE_DATA {
-                access_name = vec![0u16; size as usize];
-                continue;
-            }
-            check_wnet(status)?;
-            return Ok(from_wide_buf(&access_name));
-        }
-        Err(Error::Other(ERROR_MORE_DATA))
+        // Sized so any real access name fits on the first call: the name is
+        // either a redirected local device ("Z:", nowhere near 1024) or, for
+        // a deviceless connection, a provider-adjusted form of the remote
+        // name — covered by the `remote.len()` headroom. There is
+        // deliberately no grow-and-retry on ERROR_MORE_DATA: Windows does
+        // not document whether the failed call left the connection behind,
+        // so a retry could establish a second one (with CONNECT_REDIRECT, a
+        // second drive letter whose name is never returned to the caller).
+        let mut access_name = vec![0u16; 1024 + args.remote.len()];
+        let mut size = len_u32(access_name.len());
+        let mut result = 0u32;
+        // SAFETY: as in `connect_raw` — `args` (which every pointer in
+        // `resource` and the credential pointers borrow from) and
+        // `access_name` outlive the call.
+        let status = unsafe {
+            WNet::WNetUseConnectionW(
+                std::ptr::null_mut(), // no owner window for credential dialogs
+                &raw const resource,
+                args.password_ptr(),
+                args.username_ptr(),
+                flags,
+                access_name.as_mut_ptr(),
+                &raw mut size,
+                &raw mut result,
+            )
+        };
+        debug!("WNetUseConnectionW returned {status}, result {result:#x}");
+        check_wnet(status)?;
+        Ok(from_wide_buf(&access_name))
     }
 
     /// Connect and return an RAII [`Connection`] guard that disconnects when
