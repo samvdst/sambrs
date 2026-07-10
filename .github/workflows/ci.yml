@@ -13,8 +13,10 @@ jobs:
     name: Integration tests (Windows, real SMB share)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # 2026-07
+        with:
+          toolchain: stable
 
       - name: Provision a local user and SMB share
         shell: pwsh
@@ -40,8 +42,8 @@ jobs:
     name: MSRV check (Rust 1.85, Windows target)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # 2026-07
         with:
           toolchain: '1.85'
           targets: x86_64-pc-windows-msvc
@@ -53,9 +55,10 @@ jobs:
     name: Lint, docs, cross-target checks (Linux)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # 2026-07
         with:
+          toolchain: stable
           targets: x86_64-pc-windows-msvc
 
       - name: rustfmt
