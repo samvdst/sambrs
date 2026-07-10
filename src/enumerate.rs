@@ -54,10 +54,13 @@ impl NetResource {
         self.usage & WNet::RESOURCEUSAGE_CONNECTABLE != 0
     }
 
-    fn from_raw(raw: &WNet::NETRESOURCEW) -> Self {
-        // SAFETY: the pointers in a NETRESOURCEW returned by
-        // WNetEnumResourceW are either null or valid nul-terminated strings
-        // within the enumeration buffer, which is alive for this call.
+    /// # Safety
+    /// The string pointers in `raw` must each be null or point to a valid
+    /// nul-terminated UTF-16 string — as they are in a `NETRESOURCEW`
+    /// returned by `WNetEnumResourceW` while the enumeration buffer is
+    /// alive.
+    unsafe fn from_raw(raw: &WNet::NETRESOURCEW) -> Self {
+        // SAFETY: guaranteed by caller.
         unsafe {
             Self {
                 scope: raw.dwScope,
@@ -141,7 +144,8 @@ impl Resources {
                             count as usize,
                         )
                     };
-                    self.batch.extend(entries.iter().map(NetResource::from_raw));
+                    self.batch
+                        .extend(entries.iter().map(|e| unsafe { NetResource::from_raw(e) }));
                     return Ok(());
                 }
                 ERROR_NO_MORE_ITEMS => {
