@@ -216,7 +216,9 @@ impl SmbShare {
     /// Returns the name through which the share is accessible — the assigned
     /// device (e.g. `"Z:"`), or the local device configured on this share if
     /// one was set. Pass the returned name to
-    /// [`cancel_connection`] to disconnect.
+    /// [`cancel_connection`] to disconnect, or use
+    /// [`connect_auto_guarded`](Self::connect_auto_guarded) to have that
+    /// happen automatically.
     ///
     /// The share's resource type must be [`ResourceType::Disk`] or
     /// [`ResourceType::Print`]: Windows rejects `RESOURCETYPE_ANY` with
@@ -273,17 +275,48 @@ impl SmbShare {
     /// Connect and return an RAII [`Connection`] guard that disconnects when
     /// dropped.
     ///
-    /// Guards to the same resource are **not** independent: Windows does not
-    /// reference-count connections, so dropping one guard disconnects the
-    /// share for every other guard (and any other code in this logon session)
-    /// using it. See [`Connection`] for the details.
+    /// Requires a local device (set via
+    /// [`mount_on`](SmbShareBuilder::mount_on) /
+    /// [`local_device`](SmbShareBuilder::local_device)): the device is the
+    /// one thing a guard can exclusively own — connecting fails with
+    /// [`Error::AlreadyAssigned`] if it is taken, and canceling it by name on
+    /// drop touches no other connection. A deviceless connection offers no
+    /// such handle: Windows does not reference-count connections, and
+    /// canceling by remote name tears down **every** deviceless connection
+    /// to the resource in this logon session, including ones the guard never
+    /// made — so deviceless shares are rejected here. Use
+    /// [`connect_auto_guarded`](Self::connect_auto_guarded) to have Windows
+    /// pick the device instead.
     ///
     /// # Errors
-    /// See [`Error`].
+    /// [`Error::InvalidParameter`] (synthesized without a Windows call) when
+    /// this share has no local device; otherwise see [`Error`].
     pub fn connect_guarded(&self, options: ConnectOptions) -> Result<Connection<'_>> {
+        let Some(device) = self.local.as_deref() else {
+            return Err(Error::InvalidParameter);
+        };
+        let device = device.to_string();
         self.connect_with(options)?;
         Ok(Connection {
             share: self,
+            device,
+            on_drop: DisconnectOptions::new(),
+            armed: true,
+        })
+    }
+
+    /// [`connect_auto`](Self::connect_auto) with an RAII [`Connection`]
+    /// guard: Windows picks a free local device, and the guard cancels
+    /// exactly that device when dropped. [`Connection::device`] tells you
+    /// where the share is mounted.
+    ///
+    /// # Errors
+    /// See [`connect_auto`](Self::connect_auto).
+    pub fn connect_auto_guarded(&self, options: ConnectOptions) -> Result<Connection<'_>> {
+        let device = self.connect_auto(options)?;
+        Ok(Connection {
+            share: self,
+            device,
             on_drop: DisconnectOptions::new(),
             armed: true,
         })
@@ -433,28 +466,27 @@ impl SmbShareBuilder {
     }
 }
 
-/// RAII guard returned by [`SmbShare::connect_guarded`]: disconnects the
-/// share when dropped (best effort — a failure on drop is only visible as a
-/// `tracing` event, with the `tracing` feature enabled).
+/// RAII guard returned by [`SmbShare::connect_guarded`] and
+/// [`SmbShare::connect_auto_guarded`]: cancels the connection when dropped
+/// (best effort — a failure on drop is only visible as a `tracing` event,
+/// with the `tracing` feature enabled).
+///
+/// A guard always owns a local device redirection ([`Connection::device`])
+/// and cancels exactly that device, never the remote name. The device was
+/// free when the guard connected it, so a live guard is its sole owner and
+/// dropping it cannot tear down a connection made elsewhere. (This is why
+/// deviceless connections cannot be guarded — canceling one means canceling
+/// by remote name, which takes every deviceless connection to the resource
+/// down with it.)
 ///
 /// Use [`Connection::disconnect`] for explicit error handling, or
 /// [`Connection::leak`] to keep the connection open past the guard.
-///
-/// # Guards share one underlying connection
-///
-/// The guard owns no Windows handle; dropping it simply cancels the
-/// connection by name, and Windows does not reference-count `WNet`
-/// connections. For a deviceless share, that cancel tears down **all**
-/// deviceless connections to the remote resource in this logon session: two
-/// guards for the same resource share one underlying connection, and
-/// dropping either disconnects the other (whose own drop then finds nothing
-/// to cancel). Hold at most one guard per resource, or [`leak`] the extras.
-///
-/// [`leak`]: Connection::leak
 #[derive(Debug)]
 #[must_use = "dropping the guard disconnects the share immediately"]
 pub struct Connection<'a> {
     share: &'a SmbShare,
+    /// The redirected local device this guard exclusively owns.
+    device: String,
     on_drop: DisconnectOptions,
     armed: bool,
 }
@@ -473,6 +505,13 @@ impl<'a> Connection<'a> {
         self.share
     }
 
+    /// The local device this guard owns (e.g. `"Z:"`) — the share is
+    /// accessible through it for as long as the guard lives.
+    #[must_use]
+    pub fn device(&self) -> &str {
+        &self.device
+    }
+
     /// Consume the guard without disconnecting, keeping the connection open.
     pub fn leak(mut self) {
         self.armed = false;
@@ -484,19 +523,33 @@ impl<'a> Connection<'a> {
     /// See [`Error`].
     pub fn disconnect(mut self, options: DisconnectOptions) -> Result<()> {
         self.armed = false;
-        self.share.disconnect_with(options)
+        cancel_connection(&self.device, options)
     }
 }
 
 impl Drop for Connection<'_> {
     fn drop(&mut self) {
         if self.armed {
-            if let Err(e) = self.share.disconnect_with(self.on_drop) {
-                debug!(
-                    "failed to disconnect {} on guard drop: {e}",
-                    self.share.remote()
-                );
+            if let Err(e) = cancel_connection(&self.device, self.on_drop) {
+                debug!("failed to disconnect {} on guard drop: {e}", self.device);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deviceless_connect_guarded_is_rejected() {
+        // Rejected before any Windows call: without a local device there is
+        // nothing a guard can exclusively own, and canceling by remote name
+        // would tear down deviceless connections the guard never made.
+        let share = SmbShare::new(r"\\server\share");
+        assert_eq!(
+            share.connect_guarded(ConnectOptions::new()).unwrap_err(),
+            Error::InvalidParameter
+        );
     }
 }

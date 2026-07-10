@@ -88,7 +88,9 @@ pub enum Error {
     /// other than disk, print, or any, or an incorrect or unknown flag value.
     /// Also synthesized without a Windows call by
     /// [`server::delete_session`](crate::server::delete_session) when neither
-    /// a client nor a user filter is given.
+    /// a client nor a user filter is given, and by
+    /// [`SmbShare::connect_guarded`](crate::SmbShare::connect_guarded) for a
+    /// share without a local device.
     #[error("a parameter is incorrect")]
     InvalidParameter,
     /// The specified password is invalid (and, for connects, the interactive
@@ -239,8 +241,9 @@ impl Error {
     /// ([`Error::InteriorNul`], [`Error::InvalidDriveLetter`]). The code
     /// usually comes from a failed Windows API call, but sambrs synthesizes
     /// [`Error::InvalidParameter`] for some rejected inputs (see
-    /// [`server::delete_session`](crate::server::delete_session)); it still
-    /// reports the matching `ERROR_INVALID_PARAMETER`. For
+    /// [`server::delete_session`](crate::server::delete_session) and
+    /// [`SmbShare::connect_guarded`](crate::SmbShare::connect_guarded)); it
+    /// still reports the matching `ERROR_INVALID_PARAMETER`. For
     /// [`Error::ExtendedError`] this is `ERROR_EXTENDED_ERROR` (1208); the
     /// provider-specific code is in the variant itself.
     #[must_use]

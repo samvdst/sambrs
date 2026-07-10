@@ -33,10 +33,13 @@ migration table in the README.
   hatches.
 - `SmbShare::connect_auto`: let Windows pick a free drive letter
   (`WNetUseConnectionW`), returning the assigned name.
-- `SmbShare::connect_guarded`: RAII `Connection` guard that disconnects on
-  drop, with `leak()` and explicit `disconnect()`. Windows does not
-  reference-count connections, so guards to the same deviceless resource
-  share one underlying connection — see the `Connection` docs.
+- `SmbShare::connect_guarded` / `connect_auto_guarded`: RAII `Connection`
+  guard that disconnects on drop, with `leak()` and explicit `disconnect()`.
+  A guard always owns a redirected local device and cancels exactly that
+  device, so dropping it can never tear down a connection it did not create.
+  Deviceless shares are rejected with `InvalidParameter` (Windows does not
+  reference-count deviceless connections, so no guard can own one); see the
+  `Connection` docs.
 - `cancel_connection`: disconnect any connection by device or remote name.
 - `query` module: `get_connection`, `get_user`, `get_universal_name`.
 - `enumerate` module: iterate active connections, remembered connections, and

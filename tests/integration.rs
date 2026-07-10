@@ -190,21 +190,23 @@ fn guard_leak_keeps_the_connection() {
     share.disconnect().unwrap();
 }
 
-// Characterizes the documented Windows behavior that deviceless guards are
-// NOT independent: WNet connections are not reference-counted, and canceling
-// by remote name cancels all deviceless connections to the resource.
+// The ownership property behind the guard design: a guard cancels only the
+// device it owns, so dropping it must not tear down an independent deviceless
+// connection to the same resource.
 #[test]
 #[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
-fn deviceless_guards_share_one_underlying_connection() {
-    let share = share(None);
-    let first = share.connect_guarded(ConnectOptions::new()).unwrap();
-    let second = share.connect_guarded(ConnectOptions::new()).unwrap();
-    // Dropping the first guard tears down the second guard's connection too.
-    drop(first);
-    assert_eq!(
-        second.disconnect(DisconnectOptions::new()),
-        Err(Error::NotConnected)
-    );
+fn guard_drop_leaves_other_connections_alone() {
+    let deviceless = share(None);
+    deviceless.connect().unwrap();
+    let mounted = share(Some(DriveLetter::V));
+    {
+        let _guard = mounted.connect_guarded(ConnectOptions::new()).unwrap();
+        assert!(drive_exists(DriveLetter::V));
+    }
+    assert!(!drive_exists(DriveLetter::V));
+    // The deviceless connection must still be alive; disconnecting it now
+    // fails with NotConnected if the guard's drop tore it down.
+    deviceless.disconnect().unwrap();
 }
 
 // ── auto-assigned drive letter ──────────────────────────────────────────────
@@ -220,6 +222,23 @@ fn connect_auto_assigns_a_device() {
     );
     assert!(std::path::Path::new(&format!(r"{access_name}\")).is_dir());
     cancel_connection(&access_name, DisconnectOptions::new()).unwrap();
+}
+
+#[test]
+#[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
+fn connect_auto_guarded_owns_the_assigned_device() {
+    let share = share(None);
+    let device;
+    {
+        let guard = share.connect_auto_guarded(ConnectOptions::new()).unwrap();
+        device = guard.device().to_string();
+        assert!(
+            device.ends_with(':'),
+            "expected a device name, got {device:?}"
+        );
+        assert!(std::path::Path::new(&format!(r"{device}\")).is_dir());
+    }
+    assert!(!std::path::Path::new(&format!(r"{device}\")).is_dir());
 }
 
 // ── query ───────────────────────────────────────────────────────────────────
