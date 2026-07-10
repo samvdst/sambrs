@@ -51,7 +51,10 @@ migration table in the README.
   user filter (`InvalidParameter` otherwise — netapi32 treats an empty
   string as no filter); ending every session on a server is the separate,
   explicit `delete_all_sessions`.
-- `Error::raw_os_error` and `From<Error> for std::io::Error`.
+- `Error::raw_os_error` and `From<Error> for std::io::Error`. Converting an
+  `ExtendedError` keeps the error as the `io::Error` payload, so the
+  provider's own code, description, and name survive instead of collapsing
+  into the generic `ERROR_EXTENDED_ERROR` (1208) message.
 - Cargo features: `tracing` (now optional!) and `zeroize` (wipe password
   buffers on drop).
 - CI: full integration suite against a real `\\localhost` share on Windows

@@ -289,8 +289,17 @@ impl Error {
     }
 }
 
+/// Errors with a Windows code convert via `from_raw_os_error`, keeping the
+/// system message and `io::Error::raw_os_error`. The exceptions keep the
+/// [`enum@Error`] itself as the payload instead: [`Error::ExtendedError`], whose
+/// code would only be the generic `ERROR_EXTENDED_ERROR` (1208) — the
+/// provider's own code, description, and name live in the variant — and the
+/// input-validation errors, which have no Windows code at all.
 impl From<Error> for std::io::Error {
     fn from(e: Error) -> Self {
+        if matches!(e, Error::ExtendedError { .. }) {
+            return Self::other(e);
+        }
         match e.raw_os_error() {
             #[allow(clippy::cast_possible_wrap)]
             Some(code) => Self::from_raw_os_error(code as i32),
@@ -346,5 +355,45 @@ pub(crate) fn wnet_extended_error() -> Error {
             description: String::from("<provider error details unavailable>"),
             provider: String::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn io_error_conversion_keeps_extended_error_details() {
+        let e = Error::ExtendedError {
+            code: 59,
+            description: String::from("the provider says no"),
+            provider: String::from("Test Provider"),
+        };
+        let io: std::io::Error = e.into();
+        // Not from_raw_os_error(1208) — the generic message would drop the
+        // provider details this variant exists to carry.
+        assert_eq!(io.raw_os_error(), None);
+        let msg = io.to_string();
+        assert!(msg.contains("59"), "provider code lost: {msg}");
+        assert!(
+            msg.contains("the provider says no"),
+            "description lost: {msg}"
+        );
+        assert!(msg.contains("Test Provider"), "provider name lost: {msg}");
+    }
+
+    #[test]
+    fn io_error_conversion_maps_windows_codes() {
+        let io: std::io::Error = Error::AccessDenied.into();
+        #[allow(clippy::cast_possible_wrap)]
+        {
+            assert_eq!(io.raw_os_error(), Some(ERROR_ACCESS_DENIED as i32));
+        }
+    }
+
+    #[test]
+    fn io_error_conversion_flags_input_validation_errors() {
+        let io: std::io::Error = Error::InteriorNul.into();
+        assert_eq!(io.kind(), std::io::ErrorKind::InvalidInput);
     }
 }
