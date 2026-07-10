@@ -42,6 +42,9 @@ features = [
   "Win32_NetworkManagement_WNet",
   "Win32_NetworkManagement_NetManagement",
   "Win32_Storage_FileSystem",
+  # FormatMessageW + LoadLibraryExW, to resolve NERR_* messages from netmsg.dll
+  "Win32_System_Diagnostics_Debug",
+  "Win32_System_LibraryLoader",
 ]
 
 [package.metadata.docs.rs]

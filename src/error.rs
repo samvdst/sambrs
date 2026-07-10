@@ -189,8 +189,64 @@ pub enum Error {
 }
 
 fn os_message(code: u32) -> String {
+    use windows_sys::Win32::NetworkManagement::NetManagement::{MAX_NERR, NERR_BASE};
+
+    // NERR_* messages live in netmsg.dll's message table, which the system
+    // table behind `from_raw_os_error` cannot see (it would show an
+    // unknown-error placeholder for them).
+    if (NERR_BASE..=MAX_NERR).contains(&code) {
+        if let Some(msg) = netmsg_message(code) {
+            return msg;
+        }
+    }
     #[allow(clippy::cast_possible_wrap)]
     std::io::Error::from_raw_os_error(code as i32).to_string()
+}
+
+/// Look up a message in netmsg.dll's message table; `None` when the module
+/// or the message is unavailable (the caller then falls back to the system
+/// message table).
+fn netmsg_message(code: u32) -> Option<String> {
+    use windows_sys::Win32::Foundation::FreeLibrary;
+    use windows_sys::Win32::System::Diagnostics::Debug::{
+        FORMAT_MESSAGE_FROM_HMODULE, FORMAT_MESSAGE_IGNORE_INSERTS, FormatMessageW,
+    };
+    use windows_sys::Win32::System::LibraryLoader::{LOAD_LIBRARY_AS_DATAFILE, LoadLibraryExW};
+
+    let netmsg = crate::strings::to_wide("netmsg.dll").ok()?;
+    // SAFETY: `netmsg` is a valid nul-terminated string; the returned module
+    // handle is freed below, after the message has been copied out of it.
+    let module = unsafe {
+        LoadLibraryExW(
+            netmsg.as_ptr(),
+            std::ptr::null_mut(),
+            LOAD_LIBRARY_AS_DATAFILE,
+        )
+    };
+    if module.is_null() {
+        return None;
+    }
+    let mut buf = [0u16; 512];
+    // SAFETY: `module` stays valid and `buf` outlives the call;
+    // IGNORE_INSERTS guarantees the null `arguments` is never read.
+    let len = unsafe {
+        FormatMessageW(
+            FORMAT_MESSAGE_FROM_HMODULE | FORMAT_MESSAGE_IGNORE_INSERTS,
+            module,
+            code,
+            0, // default language search order
+            buf.as_mut_ptr(),
+            crate::strings::len_u32(buf.len()),
+            std::ptr::null(),
+        )
+    };
+    // SAFETY: `module` came from LoadLibraryExW and is freed exactly once.
+    unsafe {
+        FreeLibrary(module);
+    }
+    // Messages end with "\r\n"; io::Error's Display doesn't have trailing
+    // whitespace either.
+    (len > 0).then(|| crate::strings::from_wide_buf(&buf).trim_end().to_string())
 }
 
 impl Error {
@@ -398,5 +454,15 @@ mod tests {
     fn io_error_conversion_flags_input_validation_errors() {
         let io: std::io::Error = Error::InteriorNul.into();
         assert_eq!(io.kind(), std::io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn other_error_resolves_nerr_messages_from_netmsg_dll() {
+        // NERR_NetNotStarted (2102) has no system-table message; it must
+        // come from netmsg.dll. The text is locale-dependent, so assert only
+        // that a message was found and that Other's Display uses it.
+        let msg = netmsg_message(2102).expect("netmsg.dll must resolve NERR codes");
+        assert!(!msg.is_empty());
+        assert!(Error::Other(2102).to_string().contains(&msg));
     }
 }

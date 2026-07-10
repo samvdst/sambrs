@@ -51,6 +51,9 @@ migration table in the README.
   user filter (`InvalidParameter` otherwise — netapi32 treats an empty
   string as no filter); ending every session on a server is the separate,
   explicit `delete_all_sessions`.
+- `Error::Other` resolves `NERR_*` codes (2100–2999) through netmsg.dll, so
+  undocumented netapi32 errors display their real message instead of an
+  unknown-error placeholder.
 - `Error::raw_os_error` and `From<Error> for std::io::Error`. Converting an
   `ExtendedError` keeps the error as the `io::Error` payload, so the
   provider's own code, description, and name survive instead of collapsing
