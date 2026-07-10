@@ -36,6 +36,19 @@ jobs:
       - name: Unit tests (no default features)
         run: cargo test
 
+  msrv:
+    name: MSRV check (Rust 1.85, Windows target)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.85'
+          targets: x86_64-pc-windows-msvc
+
+      - name: crate (incl. tests) compiles on the declared MSRV
+        run: cargo check --target x86_64-pc-windows-msvc --all-targets --all-features
+
   lint:
     name: Lint, docs, cross-target checks (Linux)
     runs-on: ubuntu-latest

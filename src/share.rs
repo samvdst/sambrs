@@ -162,7 +162,10 @@ impl SmbShare {
     /// Connect with default options: a temporary, non-interactive connection.
     ///
     /// Connecting multiple times works fine in deviceless mode but fails with
-    /// [`Error::AlreadyAssigned`] when a local mount point is set.
+    /// [`Error::AlreadyAssigned`] when a local mount point is set. Windows
+    /// does not reference-count connections, though: repeated deviceless
+    /// connects share one underlying connection, and a single
+    /// [`disconnect`](Self::disconnect) cancels them all.
     ///
     /// # Errors
     /// See [`Error`] — every documented `WNetAddConnection2W` failure has a
@@ -270,6 +273,11 @@ impl SmbShare {
     /// Connect and return an RAII [`Connection`] guard that disconnects when
     /// dropped.
     ///
+    /// Guards to the same resource are **not** independent: Windows does not
+    /// reference-count connections, so dropping one guard disconnects the
+    /// share for every other guard (and any other code in this logon session)
+    /// using it. See [`Connection`] for the details.
+    ///
     /// # Errors
     /// See [`Error`].
     pub fn connect_guarded(&self, options: ConnectOptions) -> Result<Connection<'_>> {
@@ -284,7 +292,10 @@ impl SmbShare {
     /// Disconnect with default options: non-forced, keeping any persistence.
     ///
     /// Disconnects by local device name when this share has one, otherwise by
-    /// remote name.
+    /// remote name. Disconnecting by remote name cancels **all** deviceless
+    /// connections to that resource in this logon session — Windows does not
+    /// reference-count them, so this undoes every [`connect`](Self::connect)
+    /// to the resource at once, not just one.
     ///
     /// # Errors
     /// See [`Error`] — every documented `WNetCancelConnection2W` failure has
@@ -309,6 +320,10 @@ impl SmbShare {
 /// This is the direct wrapper around `WNetCancelConnection2W`; use it to
 /// disconnect names returned by
 /// [`SmbShare::connect_auto`] or found via [`crate::enumerate`].
+///
+/// A local device name cancels only that redirection; a remote name cancels
+/// **all** deviceless connections to that resource in this logon session
+/// (Windows does not reference-count them).
 ///
 /// # Errors
 /// See [`Error`].
@@ -424,6 +439,18 @@ impl SmbShareBuilder {
 ///
 /// Use [`Connection::disconnect`] for explicit error handling, or
 /// [`Connection::leak`] to keep the connection open past the guard.
+///
+/// # Guards share one underlying connection
+///
+/// The guard owns no Windows handle; dropping it simply cancels the
+/// connection by name, and Windows does not reference-count `WNet`
+/// connections. For a deviceless share, that cancel tears down **all**
+/// deviceless connections to the remote resource in this logon session: two
+/// guards for the same resource share one underlying connection, and
+/// dropping either disconnects the other (whose own drop then finds nothing
+/// to cancel). Hold at most one guard per resource, or [`leak`] the extras.
+///
+/// [`leak`]: Connection::leak
 #[derive(Debug)]
 #[must_use = "dropping the guard disconnects the share immediately"]
 pub struct Connection<'a> {

@@ -190,6 +190,23 @@ fn guard_leak_keeps_the_connection() {
     share.disconnect().unwrap();
 }
 
+// Characterizes the documented Windows behavior that deviceless guards are
+// NOT independent: WNet connections are not reference-counted, and canceling
+// by remote name cancels all deviceless connections to the resource.
+#[test]
+#[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
+fn deviceless_guards_share_one_underlying_connection() {
+    let share = share(None);
+    let first = share.connect_guarded(ConnectOptions::new()).unwrap();
+    let second = share.connect_guarded(ConnectOptions::new()).unwrap();
+    // Dropping the first guard tears down the second guard's connection too.
+    drop(first);
+    assert_eq!(
+        second.disconnect(DisconnectOptions::new()),
+        Err(Error::NotConnected)
+    );
+}
+
 // ── auto-assigned drive letter ──────────────────────────────────────────────
 
 #[test]

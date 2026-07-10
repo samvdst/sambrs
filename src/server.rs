@@ -54,11 +54,22 @@ impl Drop for NetBuffer {
 /// protocol and buffer ownership. `call` receives the out-buffer pointer and
 /// the entries-read / total-entries out-params; each returned entry is passed
 /// to `each` while the buffer is still alive.
+///
+/// The protocol contract says every `ERROR_MORE_DATA` batch delivers entries
+/// and advances the resume handle; a malformed or malicious server can
+/// violate that, so the loop fails with `Error::Other(ERROR_MORE_DATA)`
+/// instead of spinning forever: immediately when a batch delivers nothing
+/// (the next call would repeat the identical request), and after
+/// `MAX_BATCHES` batches as a backstop against a resume handle that yields
+/// entries but never terminates.
 fn net_enum<T>(
     mut call: impl FnMut(*mut *mut u8, *mut u32, *mut u32) -> u32,
     mut each: impl FnMut(&T),
 ) -> Result<()> {
-    loop {
+    // Batches are MAX_PREFERRED_LENGTH-sized (remotely still tens of KB), so
+    // thousands of batches are far beyond any real enumeration.
+    const MAX_BATCHES: u32 = 4096;
+    for _ in 0..MAX_BATCHES {
         let mut buf: *mut u8 = std::ptr::null_mut();
         let mut read = 0u32;
         let mut total = 0u32;
@@ -78,12 +89,18 @@ fn net_enum<T>(
                 if status == NERR_SUCCESS {
                     return Ok(());
                 }
+                if buf.is_null() || read == 0 {
+                    // ERROR_MORE_DATA with an empty batch: no progress was
+                    // made, so looping would repeat the identical call.
+                    return Err(Error::Other(ERROR_MORE_DATA));
+                }
                 // ERROR_MORE_DATA: loop again, the resume handle captured by
                 // `call` continues where this batch ended.
             }
             code => return Err(Error::from_status(code)),
         }
     }
+    Err(Error::Other(ERROR_MORE_DATA))
 }
 
 /// Owned `String` from a nul-terminated wide pointer; `None` when the pointer
@@ -805,6 +822,54 @@ mod tests {
                 Error::InvalidParameter
             );
         }
+    }
+
+    #[test]
+    fn net_enum_fails_on_an_empty_more_data_batch() {
+        // ERROR_MORE_DATA with no entries delivered means the next call
+        // would repeat the identical request; net_enum must error out
+        // instead of looping forever.
+        let mut calls = 0;
+        let result = net_enum::<u32>(
+            |_, _, _| {
+                calls += 1;
+                ERROR_MORE_DATA
+            },
+            |_| panic!("no entries were delivered"),
+        );
+        assert_eq!(result, Err(Error::Other(ERROR_MORE_DATA)));
+        assert_eq!(calls, 1);
+    }
+
+    #[test]
+    // netapi32 allocates with alignment suitable for any of its info
+    // structures, so the u8 -> u32 cast below is sound.
+    #[allow(clippy::cast_ptr_alignment)]
+    fn net_enum_gives_up_on_a_never_ending_enumeration() {
+        use windows_sys::Win32::NetworkManagement::NetManagement::NetApiBufferAllocate;
+
+        // A resume handle that keeps yielding entries without ever reaching
+        // NERR_SUCCESS must hit the batch backstop, not run unbounded.
+        let mut entries = 0u32;
+        let result = net_enum::<u32>(
+            |buf, read, _| {
+                // SAFETY: `buf` receives a real netapi32 allocation (freed
+                // by net_enum's NetBuffer guard) holding the one u32 entry
+                // that `read` reports.
+                unsafe {
+                    NetApiBufferAllocate(4, buf.cast());
+                    (*buf).cast::<u32>().write(7);
+                    read.write(1);
+                }
+                ERROR_MORE_DATA
+            },
+            |&n| {
+                assert_eq!(n, 7);
+                entries += 1;
+            },
+        );
+        assert_eq!(result, Err(Error::Other(ERROR_MORE_DATA)));
+        assert!(entries > 0, "delivered entries must still be consumed");
     }
 
     #[test]

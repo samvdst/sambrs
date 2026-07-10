@@ -34,7 +34,9 @@ migration table in the README.
 - `SmbShare::connect_auto`: let Windows pick a free drive letter
   (`WNetUseConnectionW`), returning the assigned name.
 - `SmbShare::connect_guarded`: RAII `Connection` guard that disconnects on
-  drop, with `leak()` and explicit `disconnect()`.
+  drop, with `leak()` and explicit `disconnect()`. Windows does not
+  reference-count connections, so guards to the same deviceless resource
+  share one underlying connection — see the `Connection` docs.
 - `cancel_connection`: disconnect any connection by device or remote name.
 - `query` module: `get_connection`, `get_user`, `get_universal_name`.
 - `enumerate` module: iterate active connections, remembered connections, and
@@ -50,7 +52,10 @@ migration table in the README.
 - Cargo features: `tracing` (now optional!) and `zeroize` (wipe password
   buffers on drop).
 - CI: full integration suite against a real `\\localhost` share on Windows
-  runners; clippy/rustfmt/rustdoc gates.
+  runners; clippy/rustfmt/rustdoc gates; MSRV (1.85) build check.
+- The `server` enumeration loop fails with `Error::Other(ERROR_MORE_DATA)`
+  instead of spinning forever when a malformed server keeps reporting
+  `ERROR_MORE_DATA` without delivering entries or terminating.
 
 ### Changed
 

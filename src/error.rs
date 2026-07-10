@@ -174,6 +174,11 @@ pub enum Error {
 
     /// Any status code without a dedicated variant. The message is resolved
     /// through the system message table where possible.
+    ///
+    /// sambrs also synthesizes `Other(ERROR_MORE_DATA)` (234) when Windows
+    /// keeps reporting that more data is available without making progress —
+    /// a buffer-size retry that never fits, or an enumeration batch that
+    /// delivers no entries — because retrying would loop forever.
     #[error("Windows error {code}: {msg}", code = .0, msg = os_message(*.0))]
     Other(u32),
 }
