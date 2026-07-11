@@ -28,9 +28,8 @@ migration table in the README.
 - `ConnectOptions` covering every documented `CONNECT_*` flag: `persist`,
   `update_recent`, `interactive`, `prompt`, `commandline`, `redirect`,
   `current_media`, `save_credentials`, `reset_credentials`,
-  `require_integrity` (SMB signing), `require_privacy` (SMB encryption),
-  `write_through` — plus `raw_flags` and `SmbShare::connect_raw` as escape
-  hatches.
+  `require_integrity` (SMB signing), `require_privacy` (SMB encryption), and
+  `write_through`, plus `SmbShare::connect_raw` as an escape hatch.
 - `SmbShare::connect_auto`: let Windows pick a free drive letter
   (`WNetUseConnectionW`), returning the assigned name.
 - `SmbShare::connect_guarded` / `connect_auto_guarded`: RAII `Connection`

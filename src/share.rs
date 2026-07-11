@@ -40,7 +40,7 @@ impl ConnectArgs {
     fn resource(&self) -> WNet::NETRESOURCEW {
         WNet::NETRESOURCEW {
             dwScope: 0, // ignored by WNetAddConnection2W / WNetUseConnectionW
-            dwType: self.resource_type.to_dword(),
+            dwType: self.resource_type as u32,
             dwDisplayType: 0, // ignored, as dwScope
             dwUsage: 0,       // ignored, as dwScope
             lpLocalName: opt_ptr(self.local.as_deref()),
@@ -290,16 +290,14 @@ impl SmbShare {
     /// # Errors
     /// [`Error::InvalidParameter`] (synthesized without a Windows call) when
     /// this share has no local device; otherwise see [`Error`].
-    pub fn connect_guarded(&self, options: ConnectOptions) -> Result<Connection<'_>> {
+    pub fn connect_guarded(&self, options: ConnectOptions) -> Result<Connection> {
         let Some(device) = self.local.as_deref() else {
             return Err(Error::InvalidParameter);
         };
         let device = device.to_string();
         self.connect_with(options)?;
         Ok(Connection {
-            share: self,
             device,
-            on_drop: DisconnectOptions::new(),
             armed: true,
         })
     }
@@ -311,12 +309,10 @@ impl SmbShare {
     ///
     /// # Errors
     /// See [`connect_auto`](Self::connect_auto).
-    pub fn connect_auto_guarded(&self, options: ConnectOptions) -> Result<Connection<'_>> {
+    pub fn connect_auto_guarded(&self, options: ConnectOptions) -> Result<Connection> {
         let device = self.connect_auto(options)?;
         Ok(Connection {
-            share: self,
             device,
-            on_drop: DisconnectOptions::new(),
             armed: true,
         })
     }
@@ -412,7 +408,7 @@ impl SmbShareBuilder {
     /// Redirect the share to a local drive letter.
     #[must_use]
     pub fn mount_on(mut self, letter: DriveLetter) -> Self {
-        self.share.local = Some(letter.device());
+        self.share.local = Some(letter.to_string());
         self
     }
 
@@ -482,28 +478,13 @@ impl SmbShareBuilder {
 /// [`Connection::leak`] to keep the connection open past the guard.
 #[derive(Debug)]
 #[must_use = "dropping the guard disconnects the share immediately"]
-pub struct Connection<'a> {
-    share: &'a SmbShare,
+pub struct Connection {
     /// The redirected local device this guard exclusively owns.
     device: String,
-    on_drop: DisconnectOptions,
     armed: bool,
 }
 
-impl<'a> Connection<'a> {
-    /// Configure the [`DisconnectOptions`] used when this guard drops (e.g.
-    /// force-close open files).
-    pub fn on_drop(mut self, options: DisconnectOptions) -> Self {
-        self.on_drop = options;
-        self
-    }
-
-    /// The share this guard belongs to.
-    #[must_use]
-    pub fn share(&self) -> &'a SmbShare {
-        self.share
-    }
-
+impl Connection {
     /// The local device this guard owns (e.g. `"Z:"`) — the share is
     /// accessible through it for as long as the guard lives.
     #[must_use]
@@ -526,10 +507,10 @@ impl<'a> Connection<'a> {
     }
 }
 
-impl Drop for Connection<'_> {
+impl Drop for Connection {
     fn drop(&mut self) {
         if self.armed {
-            if let Err(e) = cancel_connection(&self.device, self.on_drop) {
+            if let Err(e) = cancel_connection(&self.device, DisconnectOptions::new()) {
                 debug!("failed to disconnect {} on guard drop: {e}", self.device);
             }
         }

@@ -15,8 +15,8 @@ flexibility of the underlying calls behind a safe, unopinionated interface:
   letter of your choice, or on a letter Windows picks. Every documented
   `CONNECT_*` flag is available through `ConnectOptions`, including
   per-connection SMB signing (`require_integrity`) and encryption
-  (`require_privacy`) enforcement, plus a raw-flags escape hatch. An optional
-  RAII `Connection` guard disconnects on drop.
+  (`require_privacy`) enforcement. An optional RAII `Connection` guard
+  disconnects on drop.
 - **Querying and enumerating** — `WNetGetConnectionW`, `WNetGetUserW`,
   `WNetGetUniversalNameW`, and the `WNetOpenEnumW` family: inspect existing
   connections, list remembered ones, and enumerate the shares a server

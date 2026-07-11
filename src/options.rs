@@ -27,11 +27,6 @@ impl DriveLetter {
     pub const fn as_char(self) -> char {
         (b'A' + self as u8) as char
     }
-
-    /// The device name Windows expects, e.g. `"D:"`.
-    pub(crate) fn device(self) -> String {
-        format!("{}:", self.as_char())
-    }
 }
 
 impl TryFrom<char> for DriveLetter {
@@ -67,29 +62,20 @@ impl std::fmt::Display for DriveLetter {
 /// The type of network resource to connect to (`dwType`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
+#[repr(u32)]
 pub enum ResourceType {
     /// A disk share (`RESOURCETYPE_DISK`). The default.
     #[default]
-    Disk,
+    Disk = WNet::RESOURCETYPE_DISK,
     /// A shared printer (`RESOURCETYPE_PRINT`).
-    Print,
+    Print = WNet::RESOURCETYPE_PRINT,
     /// Any resource type (`RESOURCETYPE_ANY`).
     ///
     /// Only valid for deviceless connections: Windows rejects it with
     /// [`Error::InvalidParameter`] when a local device is redirected —
     /// whether configured explicitly or chosen automatically by
     /// [`SmbShare::connect_auto`](crate::SmbShare::connect_auto).
-    Any,
-}
-
-impl ResourceType {
-    pub(crate) fn to_dword(self) -> u32 {
-        match self {
-            Self::Disk => WNet::RESOURCETYPE_DISK,
-            Self::Print => WNet::RESOURCETYPE_PRINT,
-            Self::Any => WNet::RESOURCETYPE_ANY,
-        }
-    }
+    Any = WNet::RESOURCETYPE_ANY,
 }
 
 /// Options for [`SmbShare::connect_with`](crate::SmbShare::connect_with),
@@ -107,30 +93,32 @@ impl ResourceType {
 ///     .persist(true)
 ///     .require_privacy(true); // enforce SMB encryption
 /// ```
-// One independent boolean per CONNECT_* flag is exactly the shape of the
-// underlying API; a state machine would misrepresent it.
-#[allow(clippy::struct_excessive_bools)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[must_use]
 pub struct ConnectOptions {
-    persist: bool,
-    update_recent: bool,
-    interactive: bool,
-    prompt: bool,
-    commandline: bool,
-    redirect: bool,
-    current_media: bool,
-    save_credentials: bool,
-    reset_credentials: bool,
-    require_integrity: bool,
-    require_privacy: bool,
-    write_through: bool,
-    raw_flags: u32,
+    flags: u32,
+}
+
+impl Default for ConnectOptions {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ConnectOptions {
-    pub fn new() -> Self {
-        Self::default()
+    pub const fn new() -> Self {
+        Self {
+            flags: WNet::CONNECT_TEMPORARY,
+        }
+    }
+
+    fn flag(mut self, flag: u32, yes: bool) -> Self {
+        if yes {
+            self.flags |= flag;
+        } else {
+            self.flags &= !flag;
+        }
+        self
     }
 
     /// `CONNECT_UPDATE_PROFILE`: remember the connection and restore it when
@@ -142,32 +130,34 @@ impl ConnectOptions {
     /// When this is `false` (the default), `CONNECT_TEMPORARY` is passed
     /// instead.
     pub fn persist(mut self, yes: bool) -> Self {
-        self.persist = yes;
+        self.flags &= !(WNet::CONNECT_UPDATE_PROFILE | WNet::CONNECT_TEMPORARY);
+        self.flags |= if yes {
+            WNet::CONNECT_UPDATE_PROFILE
+        } else {
+            WNet::CONNECT_TEMPORARY
+        };
         self
     }
 
     /// `CONNECT_UPDATE_RECENT`: keep the connection out of the recent
     /// connection list unless it has a redirected local device associated
     /// with it.
-    pub fn update_recent(mut self, yes: bool) -> Self {
-        self.update_recent = yes;
-        self
+    pub fn update_recent(self, yes: bool) -> Self {
+        self.flag(WNet::CONNECT_UPDATE_RECENT, yes)
     }
 
     /// `CONNECT_INTERACTIVE`: the operating system may interact with the user
     /// for authentication purposes, e.g. by showing a password prompt instead
     /// of failing with [`Error::InvalidPassword`].
-    pub fn interactive(mut self, yes: bool) -> Self {
-        self.interactive = yes;
-        self
+    pub fn interactive(self, yes: bool) -> Self {
+        self.flag(WNet::CONNECT_INTERACTIVE, yes)
     }
 
     /// `CONNECT_PROMPT`: always prompt for the user name and password instead
     /// of first trying supplied or remembered credentials. Only valid
     /// together with [`interactive`](Self::interactive).
-    pub fn prompt(mut self, yes: bool) -> Self {
-        self.prompt = yes;
-        self
+    pub fn prompt(self, yes: bool) -> Self {
+        self.flag(WNet::CONNECT_PROMPT, yes)
     }
 
     /// `CONNECT_COMMANDLINE`: prompt for authentication on the command line
@@ -175,23 +165,20 @@ impl ConnectOptions {
     /// [`interactive`](Self::interactive); also a prerequisite for
     /// [`save_credentials`](Self::save_credentials) and
     /// [`reset_credentials`](Self::reset_credentials) to take effect.
-    pub fn commandline(mut self, yes: bool) -> Self {
-        self.commandline = yes;
-        self
+    pub fn commandline(self, yes: bool) -> Self {
+        self.flag(WNet::CONNECT_COMMANDLINE, yes)
     }
 
     /// `CONNECT_REDIRECT`: force the redirection of a local device even if a
     /// local device name was not specified.
-    pub fn redirect(mut self, yes: bool) -> Self {
-        self.redirect = yes;
-        self
+    pub fn redirect(self, yes: bool) -> Self {
+        self.flag(WNet::CONNECT_REDIRECT, yes)
     }
 
     /// `CONNECT_CURRENT_MEDIA`: do not start a new media to establish the
     /// connection (e.g. do not initiate a new dial-up connection).
-    pub fn current_media(mut self, yes: bool) -> Self {
-        self.current_media = yes;
-        self
+    pub fn current_media(self, yes: bool) -> Self {
+        self.flag(WNet::CONNECT_CURRENT_MEDIA, yes)
     }
 
     /// `CONNECT_CMD_SAVECRED`: if the operating system prompts for a
@@ -199,9 +186,8 @@ impl ConnectOptions {
     ///
     /// Windows ignores this flag unless [`interactive`](Self::interactive)
     /// and [`commandline`](Self::commandline) are also set.
-    pub fn save_credentials(mut self, yes: bool) -> Self {
-        self.save_credentials = yes;
-        self
+    pub fn save_credentials(self, yes: bool) -> Self {
+        self.flag(WNet::CONNECT_CMD_SAVECRED, yes)
     }
 
     /// `CONNECT_CRED_RESET`: reset the credentials for this connection that
@@ -209,83 +195,30 @@ impl ConnectOptions {
     ///
     /// Windows ignores this flag unless [`commandline`](Self::commandline)
     /// is also set.
-    pub fn reset_credentials(mut self, yes: bool) -> Self {
-        self.reset_credentials = yes;
-        self
+    pub fn reset_credentials(self, yes: bool) -> Self {
+        self.flag(WNet::CONNECT_CRED_RESET, yes)
     }
 
     /// `CONNECT_REQUIRE_INTEGRITY`: fail the connection if SMB signing cannot
     /// be enforced.
-    pub fn require_integrity(mut self, yes: bool) -> Self {
-        self.require_integrity = yes;
-        self
+    pub fn require_integrity(self, yes: bool) -> Self {
+        self.flag(WNet::CONNECT_REQUIRE_INTEGRITY, yes)
     }
 
     /// `CONNECT_REQUIRE_PRIVACY`: fail the connection if SMB encryption
     /// cannot be enforced.
-    pub fn require_privacy(mut self, yes: bool) -> Self {
-        self.require_privacy = yes;
-        self
+    pub fn require_privacy(self, yes: bool) -> Self {
+        self.flag(WNet::CONNECT_REQUIRE_PRIVACY, yes)
     }
 
     /// `CONNECT_WRITE_THROUGH_SEMANTICS`: writes go through to the server
     /// before the operation completes (no write caching).
-    pub fn write_through(mut self, yes: bool) -> Self {
-        self.write_through = yes;
-        self
-    }
-
-    /// OR arbitrary raw `CONNECT_*` bits into the final flag value — an
-    /// escape hatch for flags this crate has no named setter for. The bits
-    /// are passed through verbatim; when they already contain
-    /// `CONNECT_UPDATE_PROFILE` or `CONNECT_TEMPORARY`, the automatic
-    /// `CONNECT_TEMPORARY` default is suppressed.
-    pub fn raw_flags(mut self, flags: u32) -> Self {
-        self.raw_flags = flags;
-        self
+    pub fn write_through(self, yes: bool) -> Self {
+        self.flag(WNet::CONNECT_WRITE_THROUGH_SEMANTICS, yes)
     }
 
     pub(crate) fn to_flags(self) -> u32 {
-        let mut flags = self.raw_flags;
-        if self.persist {
-            flags |= WNet::CONNECT_UPDATE_PROFILE;
-        } else if flags & (WNet::CONNECT_UPDATE_PROFILE | WNet::CONNECT_TEMPORARY) == 0 {
-            flags |= WNet::CONNECT_TEMPORARY;
-        }
-        if self.update_recent {
-            flags |= WNet::CONNECT_UPDATE_RECENT;
-        }
-        if self.interactive {
-            flags |= WNet::CONNECT_INTERACTIVE;
-        }
-        if self.prompt {
-            flags |= WNet::CONNECT_PROMPT;
-        }
-        if self.commandline {
-            flags |= WNet::CONNECT_COMMANDLINE;
-        }
-        if self.redirect {
-            flags |= WNet::CONNECT_REDIRECT;
-        }
-        if self.current_media {
-            flags |= WNet::CONNECT_CURRENT_MEDIA;
-        }
-        if self.save_credentials {
-            flags |= WNet::CONNECT_CMD_SAVECRED;
-        }
-        if self.reset_credentials {
-            flags |= WNet::CONNECT_CRED_RESET;
-        }
-        if self.require_integrity {
-            flags |= WNet::CONNECT_REQUIRE_INTEGRITY;
-        }
-        if self.require_privacy {
-            flags |= WNet::CONNECT_REQUIRE_PRIVACY;
-        }
-        if self.write_through {
-            flags |= WNet::CONNECT_WRITE_THROUGH_SEMANTICS;
-        }
-        flags
+        self.flags
     }
 }
 
@@ -356,13 +289,20 @@ mod tests {
 
     #[test]
     fn drive_letter_formats_as_device() {
-        assert_eq!(DriveLetter::A.device(), "A:");
+        assert_eq!(DriveLetter::A.to_string(), "A:");
         assert_eq!(DriveLetter::Z.to_string(), "Z:");
     }
 
     #[test]
     fn default_options_are_temporary() {
         assert_eq!(ConnectOptions::new().to_flags(), WNet::CONNECT_TEMPORARY);
+        assert_eq!(
+            ConnectOptions::new()
+                .interactive(true)
+                .interactive(false)
+                .to_flags(),
+            WNet::CONNECT_TEMPORARY
+        );
     }
 
     #[test]
@@ -401,14 +341,6 @@ mod tests {
                 | WNet::CONNECT_REQUIRE_PRIVACY
                 | WNet::CONNECT_WRITE_THROUGH_SEMANTICS
         );
-    }
-
-    #[test]
-    fn raw_flags_suppress_automatic_temporary() {
-        let flags = ConnectOptions::new()
-            .raw_flags(WNet::CONNECT_UPDATE_PROFILE)
-            .to_flags();
-        assert_eq!(flags, WNet::CONNECT_UPDATE_PROFILE);
     }
 
     #[test]
