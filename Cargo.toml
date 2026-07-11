@@ -17,14 +17,12 @@ Safe and flexible bindings for Windows SMB share operations: connect and disconn
 include = [
   "/src",
   "/tests",
-  "/Cargo.toml",
   "/README.md",
   "/CHANGELOG.md",
   "/LICENSE",
 ]
 
 [features]
-default = []
 # Emit `tracing` debug/trace events for every Windows API call.
 tracing = ["dep:tracing"]
 # Wipe password buffers (both the stored String and transient UTF-16 copies) after use.

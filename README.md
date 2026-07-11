@@ -119,10 +119,6 @@ The tests mount real drive letters and must run single-threaded: a git
 checkout sets `RUST_TEST_THREADS=1` via `.cargo/config.toml`; set it yourself
 when running from a packaged copy of the crate.
 
-CI provisions a local user plus `\\localhost\sambrs-test` on a Windows runner
-and runs the whole suite against it on every push to `main` and on every pull
-request, plus a Rust 1.85 build to keep the declared MSRV honest.
-
 ## Migrating from 0.1
 
 `0.2` is a rework of the whole API; the most important changes:

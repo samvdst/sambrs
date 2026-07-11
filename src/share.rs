@@ -432,18 +432,16 @@ impl SmbShareBuilder {
     /// # Errors
     /// [`Error::InteriorNul`] if any string contains a NUL character.
     pub fn build(self) -> Result<SmbShare> {
-        fn validate(s: Option<&str>) -> Result<()> {
-            if s.is_some_and(|s| s.contains('\0')) {
-                Err(Error::InteriorNul)
-            } else {
-                Ok(())
-            }
+        let strings = [
+            Some(self.share.remote.as_str()),
+            self.share.username.as_deref(),
+            self.share.password.as_deref(),
+            self.share.local.as_deref(),
+            self.share.provider.as_deref(),
+        ];
+        if strings.into_iter().flatten().any(|s| s.contains('\0')) {
+            return Err(Error::InteriorNul);
         }
-        validate(Some(&self.share.remote))?;
-        validate(self.share.username.as_deref())?;
-        validate(self.share.password.as_deref())?;
-        validate(self.share.local.as_deref())?;
-        validate(self.share.provider.as_deref())?;
         Ok(self.share)
     }
 }

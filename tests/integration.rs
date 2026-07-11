@@ -283,12 +283,8 @@ fn enumerate_connections_contains_the_share() {
 fn enumerate_server_shares_contains_the_share() {
     // \\server\share -> \\server
     let full = share_name();
-    let server_root = full
-        .trim_start_matches('\\')
-        .split('\\')
-        .next()
-        .map(|s| format!(r"\\{s}"))
-        .unwrap();
+    let server = full.trim_start_matches('\\').split('\\').next().unwrap();
+    let server_root = format!(r"\\{server}");
     // Authenticate first: servers may refuse anonymous enumeration.
     let share = share(None);
     share.connect().unwrap();

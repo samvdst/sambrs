@@ -59,8 +59,6 @@ migration table in the README.
   into the generic `ERROR_EXTENDED_ERROR` (1208) message.
 - Cargo features: `tracing` (now optional!) and `zeroize` (wipe password
   buffers on drop).
-- CI: full integration suite against a real `\\localhost` share on Windows
-  runners; clippy/rustfmt/rustdoc gates; MSRV (1.85) build check.
 - The `server` enumeration loop fails with `Error::Other(ERROR_MORE_DATA)`
   instead of spinning forever when a malformed server keeps reporting
   `ERROR_MORE_DATA` without delivering entries or terminating. Similarly,

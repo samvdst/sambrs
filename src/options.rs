@@ -1,5 +1,4 @@
 use crate::error::Error;
-use windows_sys::Win32::Foundation::{FALSE, TRUE};
 use windows_sys::Win32::NetworkManagement::WNet;
 
 /// A local Windows drive letter (`A:` – `Z:`).
@@ -265,7 +264,7 @@ impl DisconnectOptions {
     }
 
     pub(crate) fn force_bool(self) -> i32 {
-        if self.force { TRUE } else { FALSE }
+        i32::from(self.force)
     }
 }
 
@@ -346,11 +345,11 @@ mod tests {
     #[test]
     fn disconnect_options_map() {
         assert_eq!(DisconnectOptions::new().flags(), 0);
-        assert_eq!(DisconnectOptions::new().force_bool(), FALSE);
+        assert_eq!(DisconnectOptions::new().force_bool(), 0);
         assert_eq!(
             DisconnectOptions::new().forget(true).flags(),
             WNet::CONNECT_UPDATE_PROFILE
         );
-        assert_eq!(DisconnectOptions::new().force(true).force_bool(), TRUE);
+        assert_eq!(DisconnectOptions::new().force(true).force_bool(), 1);
     }
 }
