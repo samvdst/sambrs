@@ -1,26 +1,4 @@
-//! Integration tests against a real SMB share.
-//!
-//! These tests are `#[ignore]`d by default because they need a live share.
-//! Provide one via environment variables and run them explicitly:
-//!
-//! ```text
-//! SAMBRS_TEST_SHARE=\\server\share
-//! SAMBRS_TEST_USERNAME=DOMAIN\user
-//! SAMBRS_TEST_PASSWORD=...
-//! SAMBRS_TEST_LOCAL=1   # only if the share is on THIS machine and the test
-//!                       # process can administer it (enables server:: tests)
-//! RUST_TEST_THREADS=1   # the tests mount real drive letters and enumerate
-//!                       # live connections; they must not run concurrently
-//!
-//! cargo test -- --include-ignored
-//! ```
-//!
-//! CI provisions `\\localhost\sambrs-test` with a dedicated local user and
-//! runs the full suite; see `.github/workflows/ci.yml`. Drive letters S-Z are
-//! used by these tests and must be free. In a git checkout,
-//! `.cargo/config.toml` sets `RUST_TEST_THREADS=1` for you; that file is not
-//! part of the packaged crate, so set it yourself when running from a
-//! published copy.
+//! Live SMB integration tests; see the README's Testing section.
 #![cfg(windows)]
 
 use sambrs::{
