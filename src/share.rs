@@ -10,8 +10,7 @@ use windows_sys::Win32::NetworkManagement::WNet;
 /// from an [`SmbShare`].
 ///
 /// Owning them in one struct pins down the borrow discipline: the struct must
-/// outlive the FFI call, because every pointer produced by [`Self::resource`],
-/// [`Self::password_ptr`], and [`Self::username_ptr`] borrows from the
+/// outlive the FFI call because every pointer passed to it borrows from the
 /// buffers owned here.
 struct ConnectArgs {
     remote: Vec<u16>,
@@ -48,18 +47,6 @@ impl ConnectArgs {
             lpComment: std::ptr::null_mut(), // ignored, as dwScope
             lpProvider: opt_ptr(self.provider.as_deref()),
         }
-    }
-
-    /// Password pointer for the call (null when no password is set); borrows
-    /// from `self`.
-    fn password_ptr(&self) -> *const u16 {
-        secret_ptr(self.password.as_ref())
-    }
-
-    /// User-name pointer for the call (null when no user name is set);
-    /// borrows from `self`.
-    fn username_ptr(&self) -> *mut u16 {
-        opt_ptr(self.username.as_deref())
     }
 }
 
@@ -199,8 +186,8 @@ impl SmbShare {
         let status = unsafe {
             WNet::WNetAddConnection2W(
                 &raw const resource,
-                args.password_ptr(),
-                args.username_ptr(),
+                secret_ptr(args.password.as_ref()),
+                opt_ptr(args.username.as_deref()),
                 flags,
             )
         };
@@ -258,8 +245,8 @@ impl SmbShare {
             WNet::WNetUseConnectionW(
                 std::ptr::null_mut(), // no owner window for credential dialogs
                 &raw const resource,
-                args.password_ptr(),
-                args.username_ptr(),
+                secret_ptr(args.password.as_ref()),
+                opt_ptr(args.username.as_deref()),
                 flags,
                 access_name.as_mut_ptr(),
                 &raw mut size,
