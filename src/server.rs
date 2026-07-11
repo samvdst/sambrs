@@ -52,8 +52,8 @@ impl Drop for NetBuffer {
 
 /// Run a `Net*Enum` call to completion, handling the resume/`ERROR_MORE_DATA`
 /// protocol and buffer ownership. `call` receives the out-buffer pointer and
-/// the entries-read / total-entries out-params; each returned entry is passed
-/// to `each` while the buffer is still alive.
+/// the entries-read / total-entries out-params; `map` converts each returned
+/// entry while the buffer is still alive.
 ///
 /// The protocol contract says every `ERROR_MORE_DATA` batch delivers entries
 /// and advances the resume handle; a malformed or malicious server can
@@ -62,13 +62,14 @@ impl Drop for NetBuffer {
 /// (the next call would repeat the identical request), and after
 /// `MAX_BATCHES` batches as a backstop against a resume handle that yields
 /// entries but never terminates.
-fn net_enum<T>(
+fn net_enum<T, U>(
     mut call: impl FnMut(*mut *mut u8, *mut u32, *mut u32) -> u32,
-    mut each: impl FnMut(&T),
-) -> Result<()> {
+    mut map: impl FnMut(&T) -> U,
+) -> Result<Vec<U>> {
     // Batches are MAX_PREFERRED_LENGTH-sized (remotely still tens of KB), so
     // thousands of batches are far beyond any real enumeration.
     const MAX_BATCHES: u32 = 4096;
+    let mut out = Vec::new();
     for _ in 0..MAX_BATCHES {
         let mut buf: *mut u8 = std::ptr::null_mut();
         let mut read = 0u32;
@@ -82,12 +83,10 @@ fn net_enum<T>(
                     // properly aligned buffer owned by `_guard`.
                     let entries =
                         unsafe { std::slice::from_raw_parts(buf.cast::<T>(), read as usize) };
-                    for entry in entries {
-                        each(entry);
-                    }
+                    out.extend(entries.iter().map(&mut map));
                 }
                 if status == NERR_SUCCESS {
-                    return Ok(());
+                    return Ok(out);
                 }
                 if buf.is_null() || read == 0 {
                     // ERROR_MORE_DATA with an empty batch: no progress was
@@ -243,9 +242,8 @@ pub fn shares(server: Option<&str>) -> Result<Vec<ShareInfo>> {
     let server_w = server.map(to_wide).transpose()?;
     let server_ptr = opt_ptr(server_w.as_deref());
 
-    let mut out = Vec::new();
     let mut resume = 0u32;
-    let level2 = net_enum::<SHARE_INFO_2>(
+    match net_enum::<SHARE_INFO_2, _>(
         |buf, read, total| unsafe {
             NetShareEnum(
                 server_ptr,
@@ -257,15 +255,13 @@ pub fn shares(server: Option<&str>) -> Result<Vec<ShareInfo>> {
                 &raw mut resume,
             )
         },
-        |info| out.push(unsafe { ShareInfo::from_level2(info) }),
-    );
-    match level2 {
-        Ok(()) => Ok(out),
+        |info| unsafe { ShareInfo::from_level2(info) },
+    ) {
+        Ok(out) => Ok(out),
         Err(Error::AccessDenied) => {
             debug!("NetShareEnum level 2 denied, falling back to level 1");
-            out.clear();
             let mut resume = 0u32;
-            net_enum::<SHARE_INFO_1>(
+            net_enum::<SHARE_INFO_1, _>(
                 |buf, read, total| unsafe {
                     NetShareEnum(
                         server_ptr,
@@ -277,9 +273,8 @@ pub fn shares(server: Option<&str>) -> Result<Vec<ShareInfo>> {
                         &raw mut resume,
                     )
                 },
-                |info| out.push(unsafe { ShareInfo::from_level1(info) }),
-            )?;
-            Ok(out)
+                |info| unsafe { ShareInfo::from_level1(info) },
+            )
         }
         Err(e) => Err(e),
     }
@@ -524,9 +519,8 @@ pub fn sessions(
         opt_ptr(user_w.as_deref()),
     );
 
-    let mut out = Vec::new();
     let mut resume = 0u32;
-    let level1 = net_enum::<SESSION_INFO_1>(
+    match net_enum::<SESSION_INFO_1, _>(
         |buf, read, total| unsafe {
             NetSessionEnum(
                 server_ptr,
@@ -540,15 +534,13 @@ pub fn sessions(
                 &raw mut resume,
             )
         },
-        |info| out.push(unsafe { SessionInfo::from_level1(info) }),
-    );
-    match level1 {
-        Ok(()) => Ok(out),
+        |info| unsafe { SessionInfo::from_level1(info) },
+    ) {
+        Ok(out) => Ok(out),
         Err(Error::AccessDenied) => {
             debug!("NetSessionEnum level 1 denied, falling back to level 10");
-            out.clear();
             let mut resume = 0u32;
-            net_enum::<SESSION_INFO_10>(
+            net_enum::<SESSION_INFO_10, _>(
                 |buf, read, total| unsafe {
                     NetSessionEnum(
                         server_ptr,
@@ -562,9 +554,8 @@ pub fn sessions(
                         &raw mut resume,
                     )
                 },
-                |info| out.push(unsafe { SessionInfo::from_level10(info) }),
-            )?;
-            Ok(out)
+                |info| unsafe { SessionInfo::from_level10(info) },
+            )
         }
         Err(e) => Err(e),
     }
@@ -677,9 +668,8 @@ pub fn open_files(
     let path_w = base_path.map(to_wide).transpose()?;
     let user_w = username.map(to_wide).transpose()?;
 
-    let mut out = Vec::new();
     let mut resume = 0usize; // NetFileEnum's resume handle is pointer-sized
-    net_enum::<FILE_INFO_3>(
+    net_enum::<FILE_INFO_3, _>(
         |buf, read, total| unsafe {
             NetFileEnum(
                 opt_ptr(server_w.as_deref()),
@@ -693,20 +683,19 @@ pub fn open_files(
                 &raw mut resume,
             )
         },
-        |info: &FILE_INFO_3| {
+        |info| {
             // SAFETY: strings live in the enumeration buffer held by net_enum.
             unsafe {
-                out.push(OpenFile {
+                OpenFile {
                     id: info.fi3_id,
                     path: from_pwstr(info.fi3_pathname).unwrap_or_default(),
                     username: from_pwstr_nonempty(info.fi3_username),
                     locks: info.fi3_num_locks,
                     permissions: info.fi3_permissions,
-                });
+                }
             }
         },
-    )?;
-    Ok(out)
+    )
 }
 
 /// Force-close an open file/device/pipe by its [`OpenFile::id`] via
@@ -758,9 +747,8 @@ pub fn connections(server: Option<&str>, qualifier: &str) -> Result<Vec<ShareCon
     let server_w = server.map(to_wide).transpose()?;
     let qualifier_w = to_wide(qualifier)?;
 
-    let mut out = Vec::new();
     let mut resume = 0u32;
-    net_enum::<CONNECTION_INFO_1>(
+    net_enum::<CONNECTION_INFO_1, _>(
         |buf, read, total| unsafe {
             NetConnectionEnum(
                 opt_ptr(server_w.as_deref()),
@@ -773,10 +761,10 @@ pub fn connections(server: Option<&str>, qualifier: &str) -> Result<Vec<ShareCon
                 &raw mut resume,
             )
         },
-        |info: &CONNECTION_INFO_1| {
+        |info| {
             // SAFETY: strings live in the enumeration buffer held by net_enum.
             unsafe {
-                out.push(ShareConnection {
+                ShareConnection {
                     id: info.coni1_id,
                     share_type: ShareType::from_raw(info.coni1_type),
                     open_files: info.coni1_num_opens,
@@ -784,11 +772,10 @@ pub fn connections(server: Option<&str>, qualifier: &str) -> Result<Vec<ShareCon
                     active: Duration::from_secs(u64::from(info.coni1_time)),
                     username: from_pwstr_nonempty(info.coni1_username),
                     name: from_pwstr_nonempty(info.coni1_netname),
-                });
+                }
             }
         },
-    )?;
-    Ok(out)
+    )
 }
 
 #[cfg(test)]
@@ -830,7 +817,7 @@ mod tests {
         // would repeat the identical request; net_enum must error out
         // instead of looping forever.
         let mut calls = 0;
-        let result = net_enum::<u32>(
+        let result = net_enum::<u32, _>(
             |_, _, _| {
                 calls += 1;
                 ERROR_MORE_DATA
@@ -851,7 +838,7 @@ mod tests {
         // A resume handle that keeps yielding entries without ever reaching
         // NERR_SUCCESS must hit the batch backstop, not run unbounded.
         let mut entries = 0u32;
-        let result = net_enum::<u32>(
+        let result = net_enum::<u32, _>(
             |buf, read, _| {
                 // SAFETY: `buf` receives a real netapi32 allocation (freed
                 // by net_enum's NetBuffer guard) holding the one u32 entry

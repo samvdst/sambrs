@@ -8,18 +8,11 @@ pub(crate) use tracing::{debug, trace};
 // The disabled variants still type-check their arguments (at zero runtime
 // cost) so code compiles identically with and without the feature.
 #[cfg(not(feature = "tracing"))]
-macro_rules! debug {
+macro_rules! disabled {
     ($($arg:tt)*) => {{
         let _ = format_args!($($arg)*);
     }};
 }
 
 #[cfg(not(feature = "tracing"))]
-macro_rules! trace {
-    ($($arg:tt)*) => {{
-        let _ = format_args!($($arg)*);
-    }};
-}
-
-#[cfg(not(feature = "tracing"))]
-pub(crate) use {debug, trace};
+pub(crate) use {disabled as debug, disabled as trace};

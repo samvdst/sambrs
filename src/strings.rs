@@ -79,13 +79,9 @@ pub(crate) unsafe fn from_pwstr(ptr: *const u16) -> Option<String> {
 /// Pointer to an optional secret wide string, or null when absent.
 ///
 /// The caller must keep the owning buffer alive for as long as the returned
-/// pointer is in use. (A `match` rather than a closure so the body works for
-/// both `Vec<u16>` and `Zeroizing<Vec<u16>>` via auto-deref.)
+/// pointer is in use.
 pub(crate) fn secret_ptr(buf: Option<&WideSecret>) -> *const u16 {
-    match buf {
-        Some(b) => b.as_ptr(),
-        None => std::ptr::null(),
-    }
+    buf.map_or(std::ptr::null(), |b| b.as_ptr())
 }
 
 /// Buffer length as `u32` for Windows APIs; saturates instead of panicking.
