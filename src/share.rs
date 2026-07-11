@@ -1,8 +1,6 @@
 use crate::error::{Error, Result, check_wnet};
 use crate::options::{ConnectOptions, DisconnectOptions, DriveLetter, ResourceType};
-use crate::strings::{
-    WideSecret, from_wide_buf, len_u32, opt_ptr, secret_ptr, to_wide, to_wide_secret,
-};
+use crate::strings::{WideSecret, from_wide_buf, len_u32, opt_ptr, secret_ptr, to_wide};
 use crate::trace::{debug, trace};
 use windows_sys::Win32::NetworkManagement::WNet;
 
@@ -23,12 +21,13 @@ struct ConnectArgs {
 
 impl ConnectArgs {
     fn new(share: &SmbShare) -> Result<Self> {
+        let password = share.password.as_deref().map(to_wide).transpose()?;
         Ok(Self {
             remote: to_wide(&share.remote)?,
             local: share.local.as_deref().map(to_wide).transpose()?,
             provider: share.provider.as_deref().map(to_wide).transpose()?,
             username: share.username.as_deref().map(to_wide).transpose()?,
-            password: share.password.as_deref().map(to_wide_secret).transpose()?,
+            password: password.map(WideSecret::from),
             resource_type: share.resource_type,
         })
     }

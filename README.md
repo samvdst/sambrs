@@ -40,7 +40,7 @@ sambrs = "0.2"
 Instantiate an `SmbShare` and establish a connection. Once connected (mounted
 or deviceless), `std::fs` works on it like on any local path:
 
-```rust
+```no_run
 use sambrs::{ConnectOptions, DriveLetter, SmbShare};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -65,9 +65,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 Without credentials, the connection authenticates as the logged-on user:
 
-```rust
+```no_run
+# fn main() -> Result<(), sambrs::Error> {
 let share = sambrs::SmbShare::new(r"\\server.local\share");
 share.connect()?;
+# Ok(())
+# }
 ```
 
 Enumerate what a server offers, or administer shares (see the
@@ -75,7 +78,8 @@ Enumerate what a server offers, or administer shares (see the
 [`server`](https://docs.rs/sambrs/latest/sambrs/server/) module docs for the
 full API):
 
-```rust
+```no_run
+# fn main() -> Result<(), sambrs::Error> {
 for resource in sambrs::enumerate::server_shares(r"\\fileserver")? {
     println!("{:?}", resource?.remote_name);
 }
@@ -84,6 +88,8 @@ sambrs::server::add_share(
     None, // local machine
     &sambrs::server::NewShare::disk("scratch", r"C:\scratch"),
 )?;
+# Ok(())
+# }
 ```
 
 ## Cargo features
@@ -138,8 +144,8 @@ empty password now, matching the Windows API).
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE)
-file for more details.
+This project is licensed under the MIT License. See the
+[LICENSE](https://github.com/samvdst/sambrs/blob/main/LICENSE) for details.
 
 ## Special Thanks
 

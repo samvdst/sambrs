@@ -14,13 +14,7 @@ description = """
 Safe and flexible bindings for Windows SMB share operations: connect and disconnect network shares (WNet), query and enumerate connections and remote shares, and administer server-side shares, sessions, and open files (netapi32).
 """
 # Allowlist: ship only the crate itself, not repo/CI/agent tooling.
-include = [
-  "/src",
-  "/tests",
-  "/README.md",
-  "/CHANGELOG.md",
-  "/LICENSE",
-]
+include = ["/src", "/tests", "/README.md", "/CHANGELOG.md", "/LICENSE"]
 
 [features]
 # Emit `tracing` debug/trace events for every Windows API call.

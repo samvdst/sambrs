@@ -29,18 +29,6 @@ pub(crate) type WideSecret = zeroize::Zeroizing<Vec<u16>>;
 #[cfg(not(feature = "zeroize"))]
 pub(crate) type WideSecret = Vec<u16>;
 
-/// Encode a secret (password) as a nul-terminated UTF-16 buffer.
-pub(crate) fn to_wide_secret(s: &str) -> Result<WideSecret> {
-    #[cfg(feature = "zeroize")]
-    {
-        to_wide(s).map(zeroize::Zeroizing::new)
-    }
-    #[cfg(not(feature = "zeroize"))]
-    {
-        to_wide(s)
-    }
-}
-
 /// Pointer to an optional wide string, or null when absent.
 ///
 /// The caller must keep the owning buffer alive for as long as the returned
