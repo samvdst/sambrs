@@ -24,7 +24,9 @@ use crate::error::{Error, Result, check_net};
 use crate::strings::{from_pwstr, opt_ptr, to_wide};
 use crate::trace::debug;
 use std::time::Duration;
-use windows_sys::Win32::Foundation::ERROR_MORE_DATA;
+use windows_sys::Win32::Foundation::{
+    ERROR_ACCESS_DENIED, ERROR_INVALID_PARAMETER, ERROR_MORE_DATA,
+};
 use windows_sys::Win32::NetworkManagement::NetManagement::{
     MAX_PREFERRED_LENGTH, NERR_Success as NERR_SUCCESS, NetApiBufferFree,
 };
@@ -57,7 +59,7 @@ impl Drop for NetBuffer {
 ///
 /// The protocol contract says every `ERROR_MORE_DATA` batch delivers entries
 /// and advances the resume handle; a malformed or malicious server can
-/// violate that, so the loop fails with `Error::Other(ERROR_MORE_DATA)`
+/// violate that, so the loop fails with `Error::Windows(ERROR_MORE_DATA)`
 /// instead of spinning forever: immediately when a batch delivers nothing
 /// (the next call would repeat the identical request), and after
 /// `MAX_BATCHES` batches as a backstop against a resume handle that yields
@@ -91,7 +93,7 @@ fn net_enum<T, U>(
                 if buf.is_null() || read == 0 {
                     // ERROR_MORE_DATA with an empty batch: no progress was
                     // made, so looping would repeat the identical call.
-                    return Err(Error::Other(ERROR_MORE_DATA));
+                    return Err(Error::Windows(ERROR_MORE_DATA));
                 }
                 // ERROR_MORE_DATA: loop again, the resume handle captured by
                 // `call` continues where this batch ended.
@@ -99,7 +101,7 @@ fn net_enum<T, U>(
             code => return Err(Error::from_status(code)),
         }
     }
-    Err(Error::Other(ERROR_MORE_DATA))
+    Err(Error::Windows(ERROR_MORE_DATA))
 }
 
 /// Owned `String` from a nul-terminated wide pointer; `None` when the pointer
@@ -234,7 +236,7 @@ impl ShareInfo {
 /// List the shares on a server via `NetShareEnum`.
 ///
 /// Tries information level 2 (full detail, administrative rights) first and
-/// transparently falls back to level 1 on [`Error::AccessDenied`].
+/// transparently falls back to level 1 on `ERROR_ACCESS_DENIED`.
 ///
 /// # Errors
 /// See [`Error`].
@@ -258,7 +260,7 @@ pub fn shares(server: Option<&str>) -> Result<Vec<ShareInfo>> {
         |info| unsafe { ShareInfo::from_level2(info) },
     ) {
         Ok(out) => Ok(out),
-        Err(Error::AccessDenied) => {
+        Err(Error::Windows(ERROR_ACCESS_DENIED)) => {
             debug!("NetShareEnum level 2 denied, falling back to level 1");
             let mut resume = 0u32;
             net_enum::<SHARE_INFO_1, _>(
@@ -284,7 +286,7 @@ pub fn shares(server: Option<&str>) -> Result<Vec<ShareInfo>> {
 /// level-1 fallback as [`shares`].
 ///
 /// # Errors
-/// [`Error::NetNameNotFound`] when the share does not exist.
+/// `NERR_NetNameNotFound` when the share does not exist.
 // netapi32 allocates its info buffers with alignment suitable for any of its
 // info structures, so the u8 -> SHARE_INFO_* casts below are sound.
 #[allow(clippy::cast_ptr_alignment)]
@@ -314,7 +316,7 @@ pub fn share_info(server: Option<&str>, name: &str) -> Result<ShareInfo> {
             // SAFETY: level-2 success means `buf` holds one SHARE_INFO_2.
             Ok(unsafe { ShareInfo::from_level2(&*buf.0.cast::<SHARE_INFO_2>()) })
         }
-        Err(Error::AccessDenied) => {
+        Err(Error::Windows(ERROR_ACCESS_DENIED)) => {
             let buf = get(1)?;
             // SAFETY: level-1 success means `buf` holds one SHARE_INFO_1.
             Ok(unsafe { ShareInfo::from_level1(&*buf.0.cast::<SHARE_INFO_1>()) })
@@ -385,9 +387,9 @@ impl NewShare {
 /// administrative rights on the target server.
 ///
 /// # Errors
-/// [`Error::DuplicateShare`] when the name is taken,
-/// [`Error::UnknownDeviceOrDirectory`] when the backing path does not exist,
-/// [`Error::AccessDenied`] without administrative rights.
+/// `NERR_DuplicateShare` when the name is taken,
+/// `NERR_UnknownDevDir` when the backing path does not exist,
+/// `ERROR_ACCESS_DENIED` without administrative rights.
 pub fn add_share(server: Option<&str>, share: &NewShare) -> Result<()> {
     let server_w = server.map(to_wide).transpose()?;
     let name_w = to_wide(&share.name)?;
@@ -425,7 +427,7 @@ pub fn add_share(server: Option<&str>, share: &NewShare) -> Result<()> {
 /// target server.
 ///
 /// # Errors
-/// [`Error::NetNameNotFound`] when the share does not exist.
+/// `NERR_NetNameNotFound` when the share does not exist.
 pub fn delete_share(server: Option<&str>, name: &str) -> Result<()> {
     let server_w = server.map(to_wide).transpose()?;
     let name_w = to_wide(name)?;
@@ -500,11 +502,11 @@ impl SessionInfo {
 /// [`SessionInfo::client`] may report the bare name without them.
 ///
 /// Tries information level 1 (full detail, administrative rights) first and
-/// transparently falls back to level 10 on [`Error::AccessDenied`].
+/// transparently falls back to level 10 on `ERROR_ACCESS_DENIED`.
 ///
 /// # Errors
-/// [`Error::ClientNameNotFound`] / [`Error::UserNotFound`] when a filter
-/// matches nothing.
+/// `NERR_ClientNameNotFound` / `NERR_UserNotFound` when a filter matches
+/// nothing.
 pub fn sessions(
     server: Option<&str>,
     client: Option<&str>,
@@ -537,7 +539,7 @@ pub fn sessions(
         |info| unsafe { SessionInfo::from_level1(info) },
     ) {
         Ok(out) => Ok(out),
-        Err(Error::AccessDenied) => {
+        Err(Error::Windows(ERROR_ACCESS_DENIED)) => {
             debug!("NetSessionEnum level 1 denied, falling back to level 10");
             let mut resume = 0u32;
             net_enum::<SESSION_INFO_10, _>(
@@ -572,10 +574,9 @@ pub fn sessions(
 /// function, [`delete_all_sessions`].
 ///
 /// # Errors
-/// [`Error::InvalidParameter`] when both `client` and `username` are `None`
-/// or empty (use [`delete_all_sessions`] to end every session),
-/// [`Error::ClientNameNotFound`] / [`Error::UserNotFound`] when nothing
-/// matches.
+/// `ERROR_INVALID_PARAMETER` when both `client` and `username` are `None` or
+/// empty (use [`delete_all_sessions`] to end every session),
+/// `NERR_ClientNameNotFound` / `NERR_UserNotFound` when nothing matches.
 pub fn delete_session(
     server: Option<&str>,
     client: Option<&str>,
@@ -586,7 +587,7 @@ pub fn delete_session(
     let client = client.filter(|c| !c.is_empty());
     let username = username.filter(|u| !u.is_empty());
     if client.is_none() && username.is_none() {
-        return Err(Error::InvalidParameter);
+        return Err(Error::Windows(ERROR_INVALID_PARAMETER));
     }
     session_del(server, client, username)
 }
@@ -599,7 +600,7 @@ pub fn delete_session(
 /// [`delete_session`].
 ///
 /// # Errors
-/// [`Error::AccessDenied`] without administrative rights.
+/// `ERROR_ACCESS_DENIED` without administrative rights.
 pub fn delete_all_sessions(server: Option<&str>) -> Result<()> {
     session_del(server, None, None)
 }
@@ -658,7 +659,7 @@ impl OpenFile {
 /// administrative rights on the target server.
 ///
 /// # Errors
-/// [`Error::AccessDenied`] without administrative rights.
+/// `ERROR_ACCESS_DENIED` without administrative rights.
 pub fn open_files(
     server: Option<&str>,
     base_path: Option<&str>,
@@ -705,7 +706,7 @@ pub fn open_files(
 /// the client side.
 ///
 /// # Errors
-/// [`Error::FileIdNotFound`] when the id does not exist.
+/// `NERR_FileIdNotFound` when the id does not exist.
 pub fn close_file(server: Option<&str>, id: u32) -> Result<()> {
     let server_w = server.map(to_wide).transpose()?;
     // SAFETY: the string outlives the call.
@@ -742,7 +743,7 @@ pub struct ShareConnection {
 /// the connections made from that computer.
 ///
 /// # Errors
-/// [`Error::NetNameNotFound`] when the qualifier matches no share.
+/// `NERR_NetNameNotFound` when the qualifier matches no share.
 pub fn connections(server: Option<&str>, qualifier: &str) -> Result<Vec<ShareConnection>> {
     let server_w = server.map(to_wide).transpose()?;
     let qualifier_w = to_wide(qualifier)?;
@@ -806,7 +807,7 @@ mod tests {
         ] {
             assert_eq!(
                 delete_session(None, client, username).unwrap_err(),
-                Error::InvalidParameter
+                Error::Windows(ERROR_INVALID_PARAMETER)
             );
         }
     }
@@ -824,7 +825,7 @@ mod tests {
             },
             |_| panic!("no entries were delivered"),
         );
-        assert_eq!(result, Err(Error::Other(ERROR_MORE_DATA)));
+        assert_eq!(result, Err(Error::Windows(ERROR_MORE_DATA)));
         assert_eq!(calls, 1);
     }
 
@@ -855,7 +856,7 @@ mod tests {
                 entries += 1;
             },
         );
-        assert_eq!(result, Err(Error::Other(ERROR_MORE_DATA)));
+        assert_eq!(result, Err(Error::Windows(ERROR_MORE_DATA)));
         assert!(entries > 0, "delivered entries must still be consumed");
     }
 

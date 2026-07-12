@@ -2,6 +2,7 @@ use crate::error::{Error, Result, check_wnet};
 use crate::options::{ConnectOptions, DisconnectOptions, DriveLetter, ResourceType};
 use crate::strings::{WideSecret, from_wide_buf, len_u32, opt_ptr, secret_ptr, to_wide};
 use crate::trace::{debug, trace};
+use windows_sys::Win32::Foundation::ERROR_INVALID_PARAMETER;
 use windows_sys::Win32::NetworkManagement::WNet;
 
 /// The wide-string buffers and resource type for one connect call, converted
@@ -189,7 +190,7 @@ impl SmbTarget {
     /// Connect with default options: a temporary, non-interactive connection.
     ///
     /// Connecting multiple times works fine in deviceless mode but fails with
-    /// [`Error::AlreadyAssigned`] when a local mount point is set. Windows
+    /// `ERROR_ALREADY_ASSIGNED` when a local mount point is set. Windows
     /// does not reference-count connections, though: repeated deviceless
     /// connects share one underlying connection, and a single
     /// [`disconnect`](Self::disconnect) cancels them all.
@@ -241,7 +242,7 @@ impl SmbTarget {
     ///
     /// The target's resource type must be [`ResourceType::Disk`] or
     /// [`ResourceType::Print`]: Windows rejects `RESOURCETYPE_ANY` with
-    /// [`Error::InvalidParameter`] when it chooses the device itself.
+    /// `ERROR_INVALID_PARAMETER` when it chooses the device itself.
     ///
     /// # Errors
     /// See [`Error`].
@@ -288,7 +289,7 @@ impl SmbTarget {
     /// Requires a local device (set via [`mount_on`](Self::mount_on) or
     /// [`local_device`](Self::local_device)): the device is the
     /// one thing a guard can exclusively own — connecting fails with
-    /// [`Error::AlreadyAssigned`] if it is taken, and canceling it by name on
+    /// `ERROR_ALREADY_ASSIGNED` if it is taken, and canceling it by name on
     /// drop touches no other connection. A deviceless connection offers no
     /// such handle: Windows does not reference-count connections, and
     /// canceling by remote name tears down **every** deviceless connection
@@ -298,11 +299,11 @@ impl SmbTarget {
     /// pick the device instead.
     ///
     /// # Errors
-    /// [`Error::InvalidParameter`] (synthesized without a Windows call) when
+    /// `ERROR_INVALID_PARAMETER` (synthesized without a Windows call) when
     /// this target has no local device; otherwise see [`Error`].
     pub fn connect_guarded(&self, options: ConnectOptions) -> Result<Connection> {
         let Some(device) = self.local.as_deref() else {
-            return Err(Error::InvalidParameter);
+            return Err(Error::Windows(ERROR_INVALID_PARAMETER));
         };
         let device = device.to_string();
         self.connect_with(options)?;
@@ -456,7 +457,7 @@ mod tests {
         let target = SmbTarget::new(r"\\server\share");
         assert_eq!(
             target.connect_guarded(ConnectOptions::new()).unwrap_err(),
-            Error::InvalidParameter
+            Error::Windows(ERROR_INVALID_PARAMETER)
         );
     }
 }

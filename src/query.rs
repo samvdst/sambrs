@@ -21,7 +21,7 @@ fn wide_out(mut call: impl FnMut(*mut u16, *mut u32) -> u32) -> Result<String> {
             code => return Err(Error::from_status(code)),
         }
     }
-    Err(Error::Other(ERROR_MORE_DATA))
+    Err(Error::Windows(ERROR_MORE_DATA))
 }
 
 /// The remote name a redirected local device is connected to, via
@@ -34,9 +34,9 @@ fn wide_out(mut call: impl FnMut(*mut u16, *mut u32) -> u32) -> Result<String> {
 /// ```
 ///
 /// # Errors
-/// [`Error::NotConnected`] if the device is not redirected,
-/// [`Error::ConnectionUnavailable`] if it is remembered but not currently
-/// connected, [`Error::BadDevice`] for invalid device names.
+/// `ERROR_NOT_CONNECTED` if the device is not redirected,
+/// `ERROR_CONNECTION_UNAVAIL` if it is remembered but not currently
+/// connected, or `ERROR_BAD_DEVICE` for an invalid device name.
 pub fn get_connection(local_device: &str) -> Result<String> {
     let device = to_wide(local_device)?;
     // SAFETY: `device` outlives the call; the buffer is sized via `len`.
@@ -49,7 +49,7 @@ pub fn get_connection(local_device: &str) -> Result<String> {
 /// the name of the current user of the process.
 ///
 /// # Errors
-/// [`Error::NotConnected`] if the name is not a connected resource.
+/// `ERROR_NOT_CONNECTED` if the name is not a connected resource.
 pub fn get_user(connection: Option<&str>) -> Result<String> {
     let name = connection.map(to_wide).transpose()?;
     // SAFETY: `name` (when present) outlives the call.
@@ -61,8 +61,8 @@ pub fn get_user(connection: Option<&str>) -> Result<String> {
 /// `\\server\share\dir\file.txt`.
 ///
 /// # Errors
-/// [`Error::NotSupported`] or [`Error::NotConnected`] when the path is not on
-/// a network-redirected device.
+/// `ERROR_NOT_SUPPORTED` or `ERROR_NOT_CONNECTED` when the path is not on a
+/// network-redirected device.
 pub fn get_universal_name(local_path: &str) -> Result<String> {
     let path = to_wide(local_path)?;
     // u64 elements keep the buffer aligned for UNIVERSAL_NAME_INFOW.
@@ -95,5 +95,5 @@ pub fn get_universal_name(local_path: &str) -> Result<String> {
             code => return Err(Error::from_status(code)),
         }
     }
-    Err(Error::Other(ERROR_MORE_DATA))
+    Err(Error::Windows(ERROR_MORE_DATA))
 }

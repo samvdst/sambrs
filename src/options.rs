@@ -4,7 +4,7 @@ use windows_sys::Win32::NetworkManagement::WNet;
 /// A local Windows drive letter (`A:` – `Z:`).
 ///
 /// Guarantees at compile time that a mount point is a valid device letter,
-/// instead of failing at connect time with a confusing [`Error::BadDevice`].
+/// instead of failing at connect time with a confusing `ERROR_BAD_DEVICE`.
 ///
 /// ```
 /// use sambrs::DriveLetter;
@@ -71,7 +71,7 @@ pub enum ResourceType {
     /// Any resource type (`RESOURCETYPE_ANY`).
     ///
     /// Only valid for deviceless connections: Windows rejects it with
-    /// [`Error::InvalidParameter`] when a local device is redirected —
+    /// `ERROR_INVALID_PARAMETER` when a local device is redirected —
     /// whether configured explicitly or chosen automatically by
     /// [`SmbTarget::connect_auto`](crate::SmbTarget::connect_auto).
     Any = WNet::RESOURCETYPE_ANY,
@@ -147,7 +147,7 @@ impl ConnectOptions {
 
     /// `CONNECT_INTERACTIVE`: the operating system may interact with the user
     /// for authentication purposes, e.g. by showing a password prompt instead
-    /// of failing with [`Error::InvalidPassword`].
+    /// of failing with `ERROR_INVALID_PASSWORD`.
     pub fn interactive(self, yes: bool) -> Self {
         self.flag(WNet::CONNECT_INTERACTIVE, yes)
     }
@@ -237,7 +237,7 @@ impl DisconnectOptions {
 
     /// Disconnect even if there are open files or jobs on the connection.
     /// When `false` (the default), disconnecting fails with
-    /// [`Error::OpenFiles`] if anything is still open.
+    /// `ERROR_OPEN_FILES` if anything is still open.
     pub fn force(mut self, yes: bool) -> Self {
         self.force = yes;
         self

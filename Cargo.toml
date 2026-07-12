@@ -23,7 +23,6 @@ tracing = ["dep:tracing"]
 zeroize = ["dep:zeroize"]
 
 [target.'cfg(windows)'.dependencies]
-thiserror = "2"
 tracing = { version = "0.1", optional = true }
 zeroize = { version = "1", optional = true }
 

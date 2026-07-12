@@ -5,6 +5,13 @@ use sambrs::{
     ConnectOptions, DisconnectOptions, DriveLetter, Error, SmbTarget, cancel_connection, enumerate,
     query, server,
 };
+use windows_sys::Win32::Foundation::{
+    ERROR_ACCESS_DENIED, ERROR_ALREADY_ASSIGNED, ERROR_BAD_NET_NAME, ERROR_INVALID_PASSWORD,
+    ERROR_LOGON_FAILURE, ERROR_NO_NET_OR_BAD_PATH, ERROR_NO_NETWORK, ERROR_OPEN_FILES,
+};
+use windows_sys::Win32::NetworkManagement::NetManagement::{
+    NERR_DuplicateShare as NERR_DUPLICATE_SHARE, NERR_NetNameNotFound as NERR_NET_NAME_NOT_FOUND,
+};
 
 fn share_name() -> String {
     std::env::var("SAMBRS_TEST_SHARE").expect("SAMBRS_TEST_SHARE must be set")
@@ -38,8 +45,7 @@ fn drive_exists(letter: DriveLetter) -> bool {
 
 // ── connect / disconnect ────────────────────────────────────────────────────
 
-// Lovely Windows sometimes returns `LogonFailure` and sometimes
-// `InvalidPassword` for a bad password.
+// Lovely Windows returns several statuses for a bad password.
 #[test]
 #[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn wrong_password_fails_without_prompting() {
@@ -49,7 +55,9 @@ fn wrong_password_fails_without_prompting() {
     assert!(
         matches!(
             result,
-            Err(Error::InvalidPassword | Error::LogonFailure | Error::AccessDenied)
+            Err(Error::Windows(
+                ERROR_INVALID_PASSWORD | ERROR_LOGON_FAILURE | ERROR_ACCESS_DENIED
+            ))
         ),
         "unexpected result: {result:?}"
     );
@@ -61,17 +69,15 @@ fn nonexistent_share_fails() {
     let target =
         SmbTarget::new(r"\\thisisnotashare.local\Share-Name").credentials(username(), password());
     let result = target.connect();
-    // The documented WNetAddConnection2W error list is not exhaustive
-    // ("Other: use FormatMessage"): unresolvable hosts commonly surface as
-    // ERROR_BAD_NETPATH (53) or ERROR_SEM_TIMEOUT (121), which have no
-    // dedicated variant.
+    // The documented WNetAddConnection2W error list is not exhaustive;
+    // unresolvable hosts commonly surface as ERROR_BAD_NETPATH (53) or
+    // ERROR_SEM_TIMEOUT (121).
     assert!(
         matches!(
             result,
-            Err(Error::BadNetName
-                | Error::NoNetOrBadPath
-                | Error::NoNetwork
-                | Error::Other(53 | 121))
+            Err(Error::Windows(
+                ERROR_BAD_NET_NAME | ERROR_NO_NET_OR_BAD_PATH | ERROR_NO_NETWORK | 53 | 121
+            ))
         ),
         "unexpected result: {result:?}"
     );
@@ -93,7 +99,10 @@ fn deviceless_connect_and_reconnect_works() {
 fn mounted_reconnect_fails_with_already_assigned() {
     let target = target(Some(DriveLetter::S));
     target.connect().unwrap();
-    assert_eq!(target.connect(), Err(Error::AlreadyAssigned));
+    assert_eq!(
+        target.connect(),
+        Err(Error::Windows(ERROR_ALREADY_ASSIGNED))
+    );
     target.disconnect().unwrap();
 }
 
@@ -119,7 +128,7 @@ fn force_disconnect_with_open_file_works() {
     target.connect().unwrap();
     let file = std::fs::File::create(r"U:\sambrs-force-disconnect.txt").unwrap();
     // Non-forced disconnect must refuse while a file is open.
-    assert_eq!(target.disconnect(), Err(Error::OpenFiles));
+    assert_eq!(target.disconnect(), Err(Error::Windows(ERROR_OPEN_FILES)));
     target
         .disconnect_with(DisconnectOptions::new().force(true))
         .unwrap();
@@ -161,7 +170,7 @@ fn guard_drop_leaves_other_connections_alone() {
     }
     assert!(!drive_exists(DriveLetter::V));
     // The deviceless connection must still be alive; disconnecting it now
-    // fails with NotConnected if the guard's drop tore it down.
+    // fails with ERROR_NOT_CONNECTED if the guard's drop tore it down.
     deviceless.disconnect().unwrap();
 }
 
@@ -315,10 +324,13 @@ fn server_add_get_delete_share_roundtrip() {
 
     // Adding the same name again must fail cleanly.
     let dup = server::add_share(None, &server::NewShare::disk(&name, dir.to_str().unwrap()));
-    assert_eq!(dup, Err(Error::DuplicateShare));
+    assert_eq!(dup, Err(Error::Windows(NERR_DUPLICATE_SHARE)));
 
     server::delete_share(None, &name).unwrap();
-    assert_eq!(server::share_info(None, &name), Err(Error::NetNameNotFound));
+    assert_eq!(
+        server::share_info(None, &name),
+        Err(Error::Windows(NERR_NET_NAME_NOT_FOUND))
+    );
 }
 
 #[test]

@@ -11,7 +11,7 @@ migration table in the README.
 - **Unicode correctness**: all calls now use the wide (`W`) API variants with
   UTF-16 strings. 0.1 used the ANSI variants, which mangled non-ASCII share
   names, user names, and passwords (typically surfacing as spurious
-  `LogonFailure`).
+  `ERROR_LOGON_FAILURE`).
 - `ERROR_EXTENDED_ERROR` no longer swallows the real error: the
   provider-specific code and message are fetched via `WNetGetLastErrorW` and
   carried in `Error::ExtendedError`.
@@ -36,7 +36,7 @@ migration table in the README.
   guard that disconnects on drop, with `leak()` and explicit `disconnect()`.
   A guard always owns a redirected local device and cancels exactly that
   device, so dropping it can never tear down a connection it did not create.
-  Deviceless targets are rejected with `InvalidParameter` (Windows does not
+  Deviceless targets are rejected with `ERROR_INVALID_PARAMETER` (Windows does not
   reference-count deviceless connections, so no guard can own one); see the
   `Connection` docs.
 - `cancel_connection`: disconnect any connection by device or remote name.
@@ -47,10 +47,10 @@ migration table in the README.
   `delete_share`, `sessions`, `delete_session`, `open_files`, `close_file`,
   `connections` — with automatic fallback to lower information levels when
   not administrator. `delete_session` requires a non-empty client and/or
-  user filter (`InvalidParameter` otherwise — netapi32 treats an empty
+  user filter (`ERROR_INVALID_PARAMETER` otherwise — netapi32 treats an empty
   string as no filter); ending every session on a server is the separate,
   explicit `delete_all_sessions`.
-- `Error::Other` resolves `NERR_*` codes (2100–2999) through netmsg.dll, so
+- `Error::Windows` resolves `NERR_*` codes (2100–2999) through netmsg.dll, so
   undocumented netapi32 errors display their real message instead of an
   unknown-error placeholder.
 - `Error::raw_os_error` and `From<Error> for std::io::Error`. Converting an
@@ -59,7 +59,7 @@ migration table in the README.
   into the generic `ERROR_EXTENDED_ERROR` (1208) message.
 - Cargo features: `tracing` (now optional!) and `zeroize` (wipe password
   buffers on drop).
-- The `server` enumeration loop fails with `Error::Other(ERROR_MORE_DATA)`
+- The `server` enumeration loop fails with `Error::Windows(ERROR_MORE_DATA)`
   instead of spinning forever when a malformed server keeps reporting
   `ERROR_MORE_DATA` without delivering entries or terminating. Similarly,
   `connect_auto` sizes its access-name buffer to fit any real access name up
@@ -69,10 +69,12 @@ migration table in the README.
 
 ### Changed
 
-- `Error` is `#[non_exhaustive]` and gained variants for the query/server
-  APIs; `Error::CStringConversion` is now `Error::InteriorNul`.
-- `windows-sys` 0.52 → 0.60, `thiserror` 1 → 2; dependencies are declared
-  Windows-only, and the crate compiles to nothing on other targets.
+- `Error` is `#[non_exhaustive]`; Windows and `NERR_*` statuses are exposed as
+  `Error::Windows(code)`, while input-validation and provider-specific errors
+  retain dedicated variants. `Error::CStringConversion` is now
+  `Error::InteriorNul`.
+- `windows-sys` 0.52 → 0.60; dependencies are declared Windows-only, and the
+  crate compiles to nothing on other targets.
 - docs.rs builds Windows targets; MSRV pinned at 1.85.
 
 ## 0.1.2

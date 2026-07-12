@@ -164,7 +164,7 @@ impl Resources {
                 code => return Err(Error::from_status(code)),
             }
         }
-        Err(Error::Other(ERROR_MORE_DATA))
+        Err(Error::Windows(ERROR_MORE_DATA))
     }
 }
 
@@ -243,8 +243,8 @@ pub fn remembered() -> Result<Resources> {
 /// before it lets you enumerate.
 ///
 /// # Errors
-/// [`Error::BadNetName`] / [`Error::NoNetOrBadPath`] when the server cannot
-/// be found, [`Error::AccessDenied`] when it refuses anonymous enumeration.
+/// `ERROR_BAD_NET_NAME` / `ERROR_NO_NET_OR_BAD_PATH` when the server cannot
+/// be found, or `ERROR_ACCESS_DENIED` when it refuses anonymous enumeration.
 pub fn server_shares(server: &str) -> Result<Resources> {
     open(
         WNet::RESOURCE_GLOBALNET,
