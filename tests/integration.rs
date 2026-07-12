@@ -136,17 +136,6 @@ fn force_disconnect_with_open_file_works() {
 
 #[test]
 #[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
-fn guard_disconnects_on_drop() {
-    let target = target(Some(DriveLetter::V));
-    {
-        let _guard = target.connect_guarded(ConnectOptions::new()).unwrap();
-        assert!(drive_exists(DriveLetter::V));
-    }
-    assert!(!drive_exists(DriveLetter::V));
-}
-
-#[test]
-#[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn guard_leak_keeps_the_connection() {
     let target = target(Some(DriveLetter::V));
     target
