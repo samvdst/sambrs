@@ -12,27 +12,18 @@
 
 use crate::error::{Error, Result, wnet_extended_error};
 use crate::strings::{from_pwstr, len_u32, to_wide};
-use crate::trace::trace;
+use crate::trace::{debug, trace};
 use std::collections::VecDeque;
 use windows_sys::Win32::Foundation::{
     ERROR_EXTENDED_ERROR, ERROR_MORE_DATA, ERROR_NO_MORE_ITEMS, HANDLE, NO_ERROR,
 };
 use windows_sys::Win32::NetworkManagement::WNet;
 
-/// An owned snapshot of one `NETRESOURCEW` entry.
-///
-/// The `scope`, `resource_type`, `display_type`, and `usage` fields carry the
-/// raw `RESOURCE_*`, `RESOURCETYPE_*`, `RESOURCEDISPLAYTYPE_*`, and
-/// `RESOURCEUSAGE_*` values from `winnetwk.h` (available as constants in
-/// `windows_sys::Win32::NetworkManagement::WNet`).
+/// An owned snapshot of one disk-share resource.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct NetResource {
-    pub scope: u32,
-    pub resource_type: u32,
-    pub display_type: u32,
-    pub usage: u32,
-    /// Local device when this entry is a redirected connection, e.g. `"Z:"`.
+    /// Local drive when this entry is a mapped connection, e.g. `"Z:"`.
     pub local_name: Option<String>,
     /// Remote name, e.g. `\\server\share`.
     pub remote_name: Option<String>,
@@ -41,19 +32,6 @@ pub struct NetResource {
 }
 
 impl NetResource {
-    /// Whether this resource is a container (server, domain) that can itself
-    /// be enumerated.
-    #[must_use]
-    pub fn is_container(&self) -> bool {
-        self.usage & WNet::RESOURCEUSAGE_CONTAINER != 0
-    }
-
-    /// Whether this resource can be connected to.
-    #[must_use]
-    pub fn is_connectable(&self) -> bool {
-        self.usage & WNet::RESOURCEUSAGE_CONNECTABLE != 0
-    }
-
     /// # Safety
     /// The string pointers in `raw` must each be null or point to a valid
     /// nul-terminated UTF-16 string — as they are in a `NETRESOURCEW`
@@ -63,10 +41,6 @@ impl NetResource {
         // SAFETY: guaranteed by caller.
         unsafe {
             Self {
-                scope: raw.dwScope,
-                resource_type: raw.dwType,
-                display_type: raw.dwDisplayType,
-                usage: raw.dwUsage,
                 local_name: from_pwstr(raw.lpLocalName),
                 remote_name: from_pwstr(raw.lpRemoteName),
                 comment: from_pwstr(raw.lpComment),
@@ -125,6 +99,7 @@ impl Resources {
                     &raw mut size,
                 )
             };
+            debug!("WNetEnumResourceW returned {status} (entries={count}, bytes={size})");
             match status {
                 NO_ERROR => {
                     trace!("WNetEnumResourceW returned {count} entries");
@@ -171,9 +146,8 @@ impl Resources {
 impl Drop for Resources {
     fn drop(&mut self) {
         // SAFETY: the handle came from WNetOpenEnumW and is closed only here.
-        unsafe {
-            WNet::WNetCloseEnum(self.handle);
-        }
+        let status = unsafe { WNet::WNetCloseEnum(self.handle) };
+        debug!("WNetCloseEnum returned {status}");
     }
 }
 
@@ -206,6 +180,7 @@ fn open(
             &raw mut handle,
         )
     };
+    debug!("WNetOpenEnumW returned {status}");
     match status {
         NO_ERROR => Ok(Resources {
             handle,
@@ -224,7 +199,8 @@ fn open(
 /// # Errors
 /// See [`Error`].
 pub fn connections() -> Result<Resources> {
-    open(WNet::RESOURCE_CONNECTED, WNet::RESOURCETYPE_ANY, 0, None)
+    trace!("enumerating active disk-share connections");
+    open(WNet::RESOURCE_CONNECTED, WNet::RESOURCETYPE_DISK, 0, None)
 }
 
 /// Remembered (persistent) connections (`RESOURCE_REMEMBERED`) — restored at
@@ -233,11 +209,12 @@ pub fn connections() -> Result<Resources> {
 /// # Errors
 /// See [`Error`].
 pub fn remembered() -> Result<Resources> {
-    open(WNet::RESOURCE_REMEMBERED, WNet::RESOURCETYPE_ANY, 0, None)
+    trace!("enumerating remembered disk-share mappings");
+    open(WNet::RESOURCE_REMEMBERED, WNet::RESOURCETYPE_DISK, 0, None)
 }
 
-/// The resources a server exposes (`RESOURCE_GLOBALNET` rooted at `server`,
-/// e.g. `r"\\fileserver"`): its shares, including shared printers.
+/// The disk shares a server exposes (`RESOURCE_GLOBALNET` rooted at `server`,
+/// e.g. `r"\\fileserver"`).
 ///
 /// The server may require an authenticated connection (e.g. to `IPC$`)
 /// before it lets you enumerate.
@@ -246,25 +223,11 @@ pub fn remembered() -> Result<Resources> {
 /// `ERROR_BAD_NET_NAME` / `ERROR_NO_NET_OR_BAD_PATH` when the server cannot
 /// be found, or `ERROR_ACCESS_DENIED` when it refuses anonymous enumeration.
 pub fn server_shares(server: &str) -> Result<Resources> {
+    trace!("enumerating disk shares on {server}");
     open(
         WNet::RESOURCE_GLOBALNET,
-        WNet::RESOURCETYPE_ANY,
+        WNet::RESOURCETYPE_DISK,
         0,
         Some(server),
     )
-}
-
-/// Fully general enumeration — pass raw `RESOURCE_*` scope, `RESOURCETYPE_*`
-/// type, and `RESOURCEUSAGE_*` usage values, and optionally the remote name
-/// of a container to enumerate (as in [`server_shares`]).
-///
-/// # Errors
-/// See [`Error`].
-pub fn resources_raw(
-    scope: u32,
-    resource_type: u32,
-    usage: u32,
-    root_remote: Option<&str>,
-) -> Result<Resources> {
-    open(scope, resource_type, usage, root_remote)
 }

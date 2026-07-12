@@ -22,12 +22,8 @@ pub(crate) fn to_wide(s: &str) -> Result<Vec<u16>> {
     Ok(wide)
 }
 
-/// A nul-terminated UTF-16 buffer that is wiped on drop when the `zeroize`
-/// feature is enabled.
-#[cfg(feature = "zeroize")]
+/// A nul-terminated UTF-16 buffer that is wiped on drop.
 pub(crate) type WideSecret = zeroize::Zeroizing<Vec<u16>>;
-#[cfg(not(feature = "zeroize"))]
-pub(crate) type WideSecret = Vec<u16>;
 
 /// Pointer to an optional wide string, or null when absent.
 ///

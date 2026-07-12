@@ -10,31 +10,20 @@ repository = "https://github.com/samvdst/sambrs"
 categories = ["os::windows-apis", "filesystem", "api-bindings"]
 keywords = ["windows", "smb", "share", "network"]
 description = """
-Safe and flexible bindings for Windows SMB share operations: connect and disconnect network shares (WNet), query and enumerate connections and remote shares, and administer server-side shares, sessions, and open files (netapi32).
+Safe, opinionated Windows SMB client operations: connect, disconnect, persist, query, and enumerate existing network shares.
 """
 # Allowlist: ship only the crate itself, not repo/CI/agent tooling.
 include = ["/src", "/tests", "/README.md", "/CHANGELOG.md", "/LICENSE"]
 
-[features]
-# Emit `tracing` debug/trace events for every Windows API call.
-tracing = ["dep:tracing"]
-# Wipe password buffers (both the stored String and transient UTF-16 copies) after use.
-zeroize = ["dep:zeroize"]
-
 [target.'cfg(windows)'.dependencies]
-tracing = { version = "0.1", optional = true, default-features = false, features = ["std"] }
-zeroize = { version = "1", optional = true }
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+zeroize = "1"
 
 [target.'cfg(windows)'.dependencies.windows-sys]
 version = "0.60"
 features = [
   "Win32_Foundation",
   "Win32_NetworkManagement_WNet",
-  "Win32_NetworkManagement_NetManagement",
-  "Win32_Storage_FileSystem",
-  # FormatMessageW + LoadLibraryExW, to resolve NERR_* messages from netmsg.dll
-  "Win32_System_Diagnostics_Debug",
-  "Win32_System_LibraryLoader",
 ]
 
 [package.metadata.docs.rs]

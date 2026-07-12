@@ -1,12 +1,11 @@
 use crate::error::{Error, Result, check_wnet};
-use crate::options::{ConnectOptions, DisconnectOptions, DriveLetter, ResourceType};
+use crate::options::{ConnectOptions, DisconnectOptions, DriveLetter};
 use crate::strings::{WideSecret, from_wide_buf, len_u32, opt_ptr, secret_ptr, to_wide};
 use crate::trace::{debug, trace};
-use windows_sys::Win32::Foundation::ERROR_INVALID_PARAMETER;
 use windows_sys::Win32::NetworkManagement::WNet;
 
-/// The wide-string buffers and resource type for one connect call, converted
-/// from an [`SmbTarget`].
+/// The wide-string buffers for one connect call, converted from an
+/// [`SmbTarget`].
 ///
 /// Owning them in one struct pins down the borrow discipline: the struct must
 /// outlive the FFI call because every pointer passed to it borrows from the
@@ -14,22 +13,23 @@ use windows_sys::Win32::NetworkManagement::WNet;
 struct ConnectArgs {
     remote: Vec<u16>,
     local: Option<Vec<u16>>,
-    provider: Option<Vec<u16>>,
     username: Option<Vec<u16>>,
     password: Option<WideSecret>,
-    resource_type: ResourceType,
 }
 
 impl ConnectArgs {
     fn new(target: &SmbTarget) -> Result<Self> {
-        let password = target.password.as_deref().map(to_wide).transpose()?;
+        let password = target
+            .password
+            .as_deref()
+            .map(to_wide)
+            .transpose()?
+            .map(WideSecret::from);
         Ok(Self {
             remote: to_wide(&target.remote)?,
             local: target.local.as_deref().map(to_wide).transpose()?,
-            provider: target.provider.as_deref().map(to_wide).transpose()?,
             username: target.username.as_deref().map(to_wide).transpose()?,
-            password: password.map(WideSecret::from),
-            resource_type: target.resource_type,
+            password,
         })
     }
 
@@ -39,19 +39,18 @@ impl ConnectArgs {
     fn resource(&self) -> WNet::NETRESOURCEW {
         WNet::NETRESOURCEW {
             dwScope: 0, // ignored by WNetAddConnection2W / WNetUseConnectionW
-            dwType: self.resource_type as u32,
+            dwType: WNet::RESOURCETYPE_DISK,
             dwDisplayType: 0, // ignored, as dwScope
             dwUsage: 0,       // ignored, as dwScope
             lpLocalName: opt_ptr(self.local.as_deref()),
             lpRemoteName: self.remote.as_ptr().cast_mut(),
             lpComment: std::ptr::null_mut(), // ignored, as dwScope
-            lpProvider: opt_ptr(self.provider.as_deref()),
+            lpProvider: std::ptr::null_mut(),
         }
     }
 }
 
-/// A reusable target for SMB connections, optionally redirected to a local
-/// device.
+/// A reusable target for SMB connections, optionally mapped to a local drive.
 ///
 /// Construct one with [`SmbTarget::new`], configure it with the fluent setters,
 /// then establish the connection with one of the `connect*` methods.
@@ -74,8 +73,6 @@ pub struct SmbTarget {
     username: Option<String>,
     password: Option<String>,
     local: Option<String>,
-    resource_type: ResourceType,
-    provider: Option<String>,
 }
 
 // Deliberately manual: must never leak the password.
@@ -86,13 +83,10 @@ impl std::fmt::Debug for SmbTarget {
             .field("username", &self.username)
             .field("password", &self.password.as_ref().map(|_| "<redacted>"))
             .field("local", &self.local)
-            .field("resource_type", &self.resource_type)
-            .field("provider", &self.provider)
             .finish()
     }
 }
 
-#[cfg(feature = "zeroize")]
 impl Drop for SmbTarget {
     fn drop(&mut self) {
         use zeroize::Zeroize;
@@ -109,8 +103,6 @@ impl SmbTarget {
             username: None,
             password: None,
             local: None,
-            resource_type: ResourceType::Disk,
-            provider: None,
         }
     }
 
@@ -137,11 +129,8 @@ impl SmbTarget {
     #[must_use]
     pub fn password(mut self, password: impl Into<String>) -> Self {
         // Wipe any previously set password before the assignment drops it.
-        #[cfg(feature = "zeroize")]
-        {
-            use zeroize::Zeroize;
-            self.password.zeroize();
-        }
+        use zeroize::Zeroize;
+        self.password.zeroize();
         self.password = Some(password.into());
         self
     }
@@ -150,34 +139,6 @@ impl SmbTarget {
     #[must_use]
     pub fn mount_on(mut self, letter: DriveLetter) -> Self {
         self.local = Some(letter.to_string());
-        self
-    }
-
-    /// Redirect to an arbitrary local device name (e.g. `"LPT1"` for a
-    /// printer share). Prefer [`mount_on`](Self::mount_on) for drive letters;
-    /// this escape hatch is passed to Windows unvalidated.
-    #[must_use]
-    pub fn local_device(mut self, device: impl Into<String>) -> Self {
-        self.local = Some(device.into());
-        self
-    }
-
-    /// The resource type to connect to. Defaults to [`ResourceType::Disk`].
-    ///
-    /// [`ResourceType::Any`] is only valid for deviceless connections; see
-    /// its documentation.
-    #[must_use]
-    pub fn resource_type(mut self, resource_type: ResourceType) -> Self {
-        self.resource_type = resource_type;
-        self
-    }
-
-    /// The network provider to use (`lpProvider`). Microsoft: set this only
-    /// if you know the network provider you want; otherwise let the operating
-    /// system determine which provider the network name maps to.
-    #[must_use]
-    pub fn provider(mut self, provider: impl Into<String>) -> Self {
-        self.provider = Some(provider.into());
         self
     }
 
@@ -196,8 +157,7 @@ impl SmbTarget {
     /// [`disconnect`](Self::disconnect) cancels them all.
     ///
     /// # Errors
-    /// See [`Error`] — every documented `WNetAddConnection2W` failure has a
-    /// dedicated variant.
+    /// Returns [`Error`] for invalid options or a failed Windows call.
     pub fn connect(&self) -> Result<()> {
         self.connect_with(ConnectOptions::new())
     }
@@ -205,14 +165,21 @@ impl SmbTarget {
     /// Connect with explicit [`ConnectOptions`].
     ///
     /// # Errors
-    /// See [`Error`] — every documented `WNetAddConnection2W` failure has a
-    /// dedicated variant.
+    /// [`Error::PersistenceRequiresDrive`] when persistence is requested for
+    /// a deviceless target, or another [`Error`] when the Windows call fails.
     pub fn connect_with(&self, options: ConnectOptions) -> Result<()> {
+        if options.is_persistent() && self.local.is_none() {
+            return Err(Error::PersistenceRequiresDrive);
+        }
         let flags = options.flags;
         let args = ConnectArgs::new(self)?;
         let resource = args.resource();
 
-        trace!("connecting to {} with flags {flags:#x}", self.remote);
+        trace!(
+            "connecting to {} as {} with flags {flags:#x}",
+            self.remote,
+            self.username.as_deref().unwrap_or("<logged-on user>")
+        );
 
         // SAFETY: all pointers in `resource` and the credential pointers stay
         // valid for the duration of the call — they borrow from the buffers
@@ -230,19 +197,14 @@ impl SmbTarget {
         check_wnet(status)
     }
 
-    /// Connect and let Windows pick a free local device, via
-    /// `WNetUseConnectionW` with `CONNECT_REDIRECT`.
+    /// Connect and let Windows pick a free drive, via `WNetUseConnectionW`
+    /// with `CONNECT_REDIRECT`.
     ///
-    /// Returns the name through which the share is accessible — the assigned
-    /// device (e.g. `"Z:"`), or the local device configured on this target if
-    /// one was set. Pass the returned name to
+    /// Returns the drive through which the share is accessible (e.g. `"Z:"`),
+    /// or the drive configured on this target if one was set. Pass the returned name to
     /// [`cancel_connection`] to disconnect, or use
     /// [`connect_auto_guarded`](Self::connect_auto_guarded) to have that
     /// happen automatically.
-    ///
-    /// The target's resource type must be [`ResourceType::Disk`] or
-    /// [`ResourceType::Print`]: Windows rejects `RESOURCETYPE_ANY` with
-    /// `ERROR_INVALID_PARAMETER` when it chooses the device itself.
     ///
     /// # Errors
     /// See [`Error`].
@@ -251,10 +213,14 @@ impl SmbTarget {
         let args = ConnectArgs::new(self)?;
         let resource = args.resource();
 
-        trace!("auto-connecting to {} with flags {flags:#x}", self.remote);
+        trace!(
+            "auto-connecting to {} as {} with flags {flags:#x}",
+            self.remote,
+            self.username.as_deref().unwrap_or("<logged-on user>")
+        );
 
         // Sized so any real access name fits on the first call: the name is
-        // either a redirected local device ("Z:", nowhere near 1024) or, for
+        // either a mapped drive ("Z:", nowhere near 1024) or, for
         // a deviceless connection, a provider-adjusted form of the remote
         // name — covered by the `remote.len()` headroom. There is
         // deliberately no grow-and-retry on ERROR_MORE_DATA: Windows does
@@ -286,9 +252,8 @@ impl SmbTarget {
     /// Connect and return an RAII [`Connection`] guard that disconnects when
     /// dropped.
     ///
-    /// Requires a local device (set via [`mount_on`](Self::mount_on) or
-    /// [`local_device`](Self::local_device)): the device is the
-    /// one thing a guard can exclusively own — connecting fails with
+    /// Requires a drive set via [`mount_on`](Self::mount_on): the drive is
+    /// the one thing a guard can exclusively own — connecting fails with
     /// `ERROR_ALREADY_ASSIGNED` if it is taken, and canceling it by name on
     /// drop touches no other connection. A deviceless connection offers no
     /// such handle: Windows does not reference-count connections, and
@@ -299,11 +264,15 @@ impl SmbTarget {
     /// pick the device instead.
     ///
     /// # Errors
-    /// `ERROR_INVALID_PARAMETER` (synthesized without a Windows call) when
-    /// this target has no local device; otherwise see [`Error`].
+    /// [`Error::GuardRequiresDrive`] when this target has no drive, or
+    /// [`Error::PersistentGuard`] when persistence is requested; otherwise
+    /// see [`Error`].
     pub fn connect_guarded(&self, options: ConnectOptions) -> Result<Connection> {
+        if options.is_persistent() {
+            return Err(Error::PersistentGuard);
+        }
         let Some(device) = self.local.as_deref() else {
-            return Err(Error::Windows(ERROR_INVALID_PARAMETER));
+            return Err(Error::GuardRequiresDrive);
         };
         let device = device.to_string();
         self.connect_with(options)?;
@@ -314,13 +283,17 @@ impl SmbTarget {
     }
 
     /// [`connect_auto`](Self::connect_auto) with an RAII [`Connection`]
-    /// guard: Windows picks a free local device, and the guard cancels
+    /// guard: Windows picks a free drive, and the guard cancels
     /// exactly that device when dropped. [`Connection::device`] tells you
     /// where the target is mounted.
     ///
     /// # Errors
-    /// See [`connect_auto`](Self::connect_auto).
+    /// [`Error::PersistentGuard`] when persistence is requested; otherwise
+    /// see [`connect_auto`](Self::connect_auto).
     pub fn connect_auto_guarded(&self, options: ConnectOptions) -> Result<Connection> {
+        if options.is_persistent() {
+            return Err(Error::PersistentGuard);
+        }
         let device = self.connect_auto(options)?;
         Ok(Connection {
             device,
@@ -330,15 +303,14 @@ impl SmbTarget {
 
     /// Disconnect with default options: non-forced, keeping any persistence.
     ///
-    /// Disconnects by local device name when this target has one, otherwise by
+    /// Disconnects by drive name when this target has one, otherwise by
     /// remote name. Disconnecting by remote name cancels **all** deviceless
     /// connections to that resource in this logon session — Windows does not
     /// reference-count them, so this undoes every [`connect`](Self::connect)
     /// to the resource at once, not just one.
     ///
     /// # Errors
-    /// See [`Error`] — every documented `WNetCancelConnection2W` failure has
-    /// a dedicated variant.
+    /// Returns [`Error`] when the Windows call fails.
     pub fn disconnect(&self) -> Result<()> {
         self.disconnect_with(DisconnectOptions::new())
     }
@@ -353,22 +325,28 @@ impl SmbTarget {
     }
 }
 
-/// Cancel a connection by name: either a redirected local device (e.g.
-/// `"Z:"`) or a remote name (`\\server\share`) for deviceless connections.
+/// Cancel a connection by name: either a mapped drive (e.g. `"Z:"`) or a
+/// remote name (`\\server\share`) for deviceless connections.
 ///
 /// This is the direct wrapper around `WNetCancelConnection2W`; use it to
 /// disconnect names returned by
 /// [`SmbTarget::connect_auto`] or found via [`crate::enumerate`].
 ///
-/// A local device name cancels only that redirection; a remote name cancels
+/// A drive name cancels only that mapping; a remote name cancels
 /// **all** deviceless connections to that resource in this logon session
 /// (Windows does not reference-count them).
 ///
 /// # Errors
 /// See [`Error`].
 pub fn cancel_connection(name: &str, options: DisconnectOptions) -> Result<()> {
+    if options.forget && !is_drive(name) {
+        return Err(Error::ForgetRequiresDrive);
+    }
     let wide = to_wide(name)?;
-    trace!("disconnecting {name}");
+    trace!(
+        "disconnecting {name} (force={}, forget={})",
+        options.force, options.forget
+    );
     // SAFETY: `wide` is a valid nul-terminated string outliving the call.
     let flags = if options.forget {
         WNet::CONNECT_UPDATE_PROFILE
@@ -381,13 +359,17 @@ pub fn cancel_connection(name: &str, options: DisconnectOptions) -> Result<()> {
     check_wnet(status)
 }
 
+fn is_drive(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    bytes.len() == 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
+}
+
 /// RAII guard returned by [`SmbTarget::connect_guarded`] and
 /// [`SmbTarget::connect_auto_guarded`]: cancels the connection when dropped
-/// (best effort — a failure on drop is only visible as a `tracing` event,
-/// with the `tracing` feature enabled).
+/// (best effort — a failure on drop is only visible as a `tracing` event).
 ///
-/// A guard always owns a local device redirection ([`Connection::device`])
-/// and cancels exactly that device, never the remote name. The device was
+/// A guard always owns a drive mapping ([`Connection::device`]) and cancels
+/// exactly that drive, never the remote name. The drive was
 /// free when the guard connected it, so a live guard is its sole owner and
 /// dropping it cannot tear down a connection made elsewhere. (This is why
 /// deviceless connections cannot be guarded — canceling one means canceling
@@ -399,13 +381,13 @@ pub fn cancel_connection(name: &str, options: DisconnectOptions) -> Result<()> {
 #[derive(Debug)]
 #[must_use = "dropping the guard disconnects the connection immediately"]
 pub struct Connection {
-    /// The redirected local device this guard exclusively owns.
+    /// The mapped drive this guard exclusively owns.
     device: String,
     armed: bool,
 }
 
 impl Connection {
-    /// The local device this guard owns (e.g. `"Z:"`) — the target is
+    /// The drive this guard owns (e.g. `"Z:"`) — the target is
     /// accessible through it for as long as the guard lives.
     #[must_use]
     pub fn device(&self) -> &str {
@@ -444,24 +426,70 @@ mod tests {
     #[test]
     fn configures_target_fluently() {
         let target = SmbTarget::new(r"\\server\share")
-            .credentials("user", "pass")
-            .mount_on(DriveLetter::D)
-            .provider("provider");
+            .username("user")
+            .password("secret-value")
+            .mount_on(DriveLetter::D);
         assert_eq!(target.username.as_deref(), Some("user"));
-        assert_eq!(target.password.as_deref(), Some("pass"));
+        assert_eq!(target.password.as_deref(), Some("secret-value"));
         assert_eq!(target.local.as_deref(), Some("D:"));
-        assert_eq!(target.provider.as_deref(), Some("provider"));
+        let debug = format!("{target:?}");
+        assert!(debug.contains("user"));
+        assert!(!debug.contains("secret-value"));
     }
 
     #[test]
-    fn deviceless_connect_guarded_is_rejected() {
-        // Rejected before any Windows call: without a local device there is
-        // nothing a guard can exclusively own, and canceling by remote name
-        // would tear down deviceless connections the guard never made.
-        let target = SmbTarget::new(r"\\server\share");
+    fn credential_forms_keep_missing_fields_absent() {
+        let default = SmbTarget::new(r"\\server\share");
+        let args = ConnectArgs::new(&default).unwrap();
+        assert!(args.username.is_none());
+        assert!(args.password.is_none());
+
+        let username_only = SmbTarget::new(r"\\server\share").username("user");
+        let args = ConnectArgs::new(&username_only).unwrap();
+        assert!(args.username.is_some());
+        assert!(args.password.is_none());
+
+        let password_only = SmbTarget::new(r"\\server\share").password("secret-value");
+        let args = ConnectArgs::new(&password_only).unwrap();
+        assert!(args.username.is_none());
+        assert!(args.password.is_some());
+    }
+
+    #[test]
+    fn invalid_lifetime_combinations_are_rejected_before_windows_calls() {
+        let deviceless = SmbTarget::new(r"\\server\share");
+        let persistent = ConnectOptions::new().persist(true);
         assert_eq!(
-            target.connect_guarded(ConnectOptions::new()).unwrap_err(),
-            Error::Windows(ERROR_INVALID_PARAMETER)
+            deviceless.connect_with(persistent),
+            Err(Error::PersistenceRequiresDrive)
         );
+        assert_eq!(
+            deviceless
+                .connect_guarded(ConnectOptions::new())
+                .unwrap_err(),
+            Error::GuardRequiresDrive
+        );
+        assert_eq!(
+            deviceless.connect_auto_guarded(persistent).unwrap_err(),
+            Error::PersistentGuard
+        );
+
+        let mapped = SmbTarget::new(r"\\server\share").mount_on(DriveLetter::D);
+        assert_eq!(
+            mapped.connect_guarded(persistent).unwrap_err(),
+            Error::PersistentGuard
+        );
+        assert_eq!(
+            deviceless.disconnect_with(DisconnectOptions::new().forget(true)),
+            Err(Error::ForgetRequiresDrive)
+        );
+    }
+
+    #[test]
+    fn drive_names_are_recognized_for_forgetting() {
+        assert!(is_drive("D:"));
+        assert!(is_drive("z:"));
+        assert!(!is_drive(r"\\server\share"));
+        assert!(!is_drive("D:\\"));
     }
 }

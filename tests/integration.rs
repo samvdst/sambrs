@@ -3,28 +3,18 @@
 
 use sambrs::{
     ConnectOptions, DisconnectOptions, DriveLetter, Error, SmbTarget, cancel_connection, enumerate,
-    query, server,
+    query,
 };
 use windows_sys::Win32::Foundation::{
     ERROR_ACCESS_DENIED, ERROR_ALREADY_ASSIGNED, ERROR_BAD_NET_NAME, ERROR_INVALID_PASSWORD,
     ERROR_LOGON_FAILURE, ERROR_NO_NET_OR_BAD_PATH, ERROR_NO_NETWORK, ERROR_OPEN_FILES,
 };
-use windows_sys::Win32::NetworkManagement::NetManagement::{
-    NERR_DuplicateShare as NERR_DUPLICATE_SHARE, NERR_NetNameNotFound as NERR_NET_NAME_NOT_FOUND,
-};
-
 const SHARE: &str = "SAMBRS_TEST_SHARE";
 const USERNAME: &str = "SAMBRS_TEST_USERNAME";
 const PASSWORD: &str = "SAMBRS_TEST_PASSWORD";
 
 fn required_env(name: &str) -> String {
     std::env::var(name).unwrap_or_else(|_| panic!("{name} must be set"))
-}
-
-/// `server::*` tests only make sense against the local machine, with rights
-/// to administer it.
-fn local_admin() -> bool {
-    std::env::var("SAMBRS_TEST_LOCAL").is_ok_and(|v| v == "1")
 }
 
 fn target(mount: Option<DriveLetter>) -> SmbTarget {
@@ -98,6 +88,29 @@ fn mounted_reconnect_fails_with_already_assigned() {
         Err(Error::Windows(ERROR_ALREADY_ASSIGNED))
     );
     target.disconnect().unwrap();
+}
+
+#[test]
+#[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
+fn persistent_mapping_is_remembered_and_can_be_forgotten() {
+    let target = target(Some(DriveLetter::R));
+    target
+        .connect_with(ConnectOptions::new().persist(true))
+        .unwrap();
+
+    let remembered: Result<Vec<_>, _> = enumerate::remembered().and_then(Iterator::collect);
+    let cleanup = target.disconnect_with(DisconnectOptions::new().force(true).forget(true));
+    cleanup.unwrap();
+
+    assert!(
+        remembered.unwrap().iter().any(|resource| {
+            resource
+                .local_name
+                .as_deref()
+                .is_some_and(|drive| drive.eq_ignore_ascii_case("R:"))
+        }),
+        "persistent R: mapping was not enumerated as remembered"
+    );
 }
 
 #[test]
@@ -275,102 +288,4 @@ fn enumerate_server_shares_contains_the_share() {
         .any(|r| r.remote_name.is_some_and(|n| n.eq_ignore_ascii_case(&full)));
     target.disconnect().unwrap();
     assert!(found, "test share not found in {server_root}'s share list");
-}
-
-// ── server administration (local machine only) ──────────────────────────────
-
-#[test]
-#[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
-fn server_shares_lists_the_test_share() {
-    if !local_admin() {
-        eprintln!("skipped: SAMBRS_TEST_LOCAL != 1");
-        return;
-    }
-    let leaf = required_env(SHARE).rsplit('\\').next().unwrap().to_string();
-    let all = server::shares(None).unwrap();
-    assert!(
-        all.iter().any(|s| s.name.eq_ignore_ascii_case(&leaf)),
-        "share {leaf} not in {all:?}"
-    );
-}
-
-#[test]
-#[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
-fn server_add_get_delete_share_roundtrip() {
-    if !local_admin() {
-        eprintln!("skipped: SAMBRS_TEST_LOCAL != 1");
-        return;
-    }
-    let dir = std::env::temp_dir().join("sambrs-roundtrip-share");
-    std::fs::create_dir_all(&dir).unwrap();
-    let name = format!("sambrs-tmp-{}", std::process::id());
-
-    server::add_share(
-        None,
-        &server::NewShare::disk(&name, dir.to_str().unwrap()).remark("sambrs test share"),
-    )
-    .unwrap();
-
-    let info = server::share_info(None, &name).unwrap();
-    assert_eq!(info.name.to_ascii_lowercase(), name.to_ascii_lowercase());
-    assert_eq!(info.share_type.kind, server::ShareKind::Disk);
-    assert_eq!(info.remark.as_deref(), Some("sambrs test share"));
-
-    // Adding the same name again must fail cleanly.
-    let dup = server::add_share(None, &server::NewShare::disk(&name, dir.to_str().unwrap()));
-    assert_eq!(dup, Err(Error::Windows(NERR_DUPLICATE_SHARE)));
-
-    server::delete_share(None, &name).unwrap();
-    assert_eq!(
-        server::share_info(None, &name),
-        Err(Error::Windows(NERR_NET_NAME_NOT_FOUND))
-    );
-}
-
-#[test]
-#[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
-fn server_sessions_and_connections_are_listable() {
-    if !local_admin() {
-        eprintln!("skipped: SAMBRS_TEST_LOCAL != 1");
-        return;
-    }
-    let leaf = required_env(SHARE).rsplit('\\').next().unwrap().to_string();
-    let target = target(None);
-    target.connect().unwrap();
-
-    // Establishing the connection above means at least one session and one
-    // connection must be visible.
-    let sessions = server::sessions(None, None, None).unwrap();
-    assert!(!sessions.is_empty(), "no SMB sessions listed");
-
-    let connections = server::connections(None, &leaf).unwrap();
-    assert!(!connections.is_empty(), "no connections to {leaf} listed");
-
-    target.disconnect().unwrap();
-}
-
-#[test]
-#[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
-fn server_open_files_are_listable_and_closable() {
-    if !local_admin() {
-        eprintln!("skipped: SAMBRS_TEST_LOCAL != 1");
-        return;
-    }
-    let target = target(Some(DriveLetter::Y));
-    target.connect().unwrap();
-    let path = r"Y:\sambrs-open-file.txt";
-    let file = std::fs::File::create(path).unwrap();
-
-    let open = server::open_files(None, None, None).unwrap();
-    let ours = open
-        .iter()
-        .find(|f| f.path.contains("sambrs-open-file"))
-        .unwrap_or_else(|| panic!("our open file not listed by NetFileEnum; listed: {open:?}"));
-    server::close_file(None, ours.id).unwrap();
-
-    drop(file);
-    let _ = std::fs::remove_file(path);
-    target
-        .disconnect_with(DisconnectOptions::new().force(true))
-        .unwrap();
 }

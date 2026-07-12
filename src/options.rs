@@ -58,40 +58,10 @@ impl std::fmt::Display for DriveLetter {
     }
 }
 
-/// The type of network resource to connect to (`dwType`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[non_exhaustive]
-#[repr(u32)]
-pub enum ResourceType {
-    /// A disk share (`RESOURCETYPE_DISK`). The default.
-    #[default]
-    Disk = WNet::RESOURCETYPE_DISK,
-    /// A shared printer (`RESOURCETYPE_PRINT`).
-    Print = WNet::RESOURCETYPE_PRINT,
-    /// Any resource type (`RESOURCETYPE_ANY`).
-    ///
-    /// Only valid for deviceless connections: Windows rejects it with
-    /// `ERROR_INVALID_PARAMETER` when a local device is redirected —
-    /// whether configured explicitly or chosen automatically by
-    /// [`SmbTarget::connect_auto`](crate::SmbTarget::connect_auto).
-    Any = WNet::RESOURCETYPE_ANY,
-}
-
-/// Options for [`SmbTarget::connect_with`](crate::SmbTarget::connect_with),
-/// covering every documented `CONNECT_*` flag of `WNetAddConnection2W` /
-/// `WNetUseConnectionW`.
+/// Options for [`SmbTarget::connect_with`](crate::SmbTarget::connect_with).
 ///
-/// The default (`ConnectOptions::new()`) is a temporary, non-interactive
-/// connection — the same behavior as
-/// [`SmbTarget::connect`](crate::SmbTarget::connect).
-///
-/// ```
-/// use sambrs::ConnectOptions;
-///
-/// let opts = ConnectOptions::new()
-///     .persist(true)
-///     .require_privacy(true); // enforce SMB encryption
-/// ```
+/// The default is a temporary, non-interactive connection. Deviceless
+/// connections are kept out of Windows' recent-connections list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[must_use]
 pub struct ConnectOptions {
@@ -107,7 +77,7 @@ impl Default for ConnectOptions {
 impl ConnectOptions {
     pub const fn new() -> Self {
         Self {
-            flags: WNet::CONNECT_TEMPORARY,
+            flags: WNet::CONNECT_TEMPORARY | WNet::CONNECT_UPDATE_RECENT,
         }
     }
 
@@ -120,100 +90,25 @@ impl ConnectOptions {
         self
     }
 
-    /// `CONNECT_UPDATE_PROFILE`: remember the connection and restore it when
-    /// the user logs on again.
-    ///
-    /// From the [Microsoft docs](https://learn.microsoft.com/en-us/windows/win32/api/winnetwk/nf-winnetwk-wnetaddconnection2w):
-    /// the operating system remembers only successful connections that
-    /// redirect local devices; deviceless connections are not remembered.
-    /// When this is `false` (the default), `CONNECT_TEMPORARY` is passed
-    /// instead.
-    pub fn persist(mut self, yes: bool) -> Self {
-        self.flags &= !(WNet::CONNECT_UPDATE_PROFILE | WNet::CONNECT_TEMPORARY);
-        self.flags |= if yes {
-            WNet::CONNECT_UPDATE_PROFILE
-        } else {
-            WNet::CONNECT_TEMPORARY
-        };
-        self
+    pub(crate) fn is_persistent(self) -> bool {
+        self.flags & WNet::CONNECT_UPDATE_PROFILE != 0
     }
 
-    /// `CONNECT_UPDATE_RECENT`: keep the connection out of the recent
-    /// connection list unless it has a redirected local device associated
-    /// with it.
-    pub fn update_recent(self, yes: bool) -> Self {
-        self.flag(WNet::CONNECT_UPDATE_RECENT, yes)
+    /// Remember this drive mapping and restore it when the user logs on.
+    /// Persistence requires an explicit or automatically assigned drive.
+    pub fn persist(self, yes: bool) -> Self {
+        self.flag(WNet::CONNECT_UPDATE_PROFILE, yes)
+            .flag(WNet::CONNECT_TEMPORARY, !yes)
     }
 
-    /// `CONNECT_INTERACTIVE`: the operating system may interact with the user
-    /// for authentication purposes, e.g. by showing a password prompt instead
-    /// of failing with `ERROR_INVALID_PASSWORD`.
-    pub fn interactive(self, yes: bool) -> Self {
-        self.flag(WNet::CONNECT_INTERACTIVE, yes)
-    }
-
-    /// `CONNECT_PROMPT`: always prompt for the user name and password instead
-    /// of first trying supplied or remembered credentials. Only valid
-    /// together with [`interactive`](Self::interactive).
-    pub fn prompt(self, yes: bool) -> Self {
-        self.flag(WNet::CONNECT_PROMPT, yes)
-    }
-
-    /// `CONNECT_COMMANDLINE`: prompt for authentication on the command line
-    /// instead of with a GUI dialog. Only valid together with
-    /// [`interactive`](Self::interactive); also a prerequisite for
-    /// [`save_credentials`](Self::save_credentials) and
-    /// [`reset_credentials`](Self::reset_credentials) to take effect.
-    pub fn commandline(self, yes: bool) -> Self {
-        self.flag(WNet::CONNECT_COMMANDLINE, yes)
-    }
-
-    /// `CONNECT_REDIRECT`: force the redirection of a local device even if a
-    /// local device name was not specified.
-    pub fn redirect(self, yes: bool) -> Self {
-        self.flag(WNet::CONNECT_REDIRECT, yes)
-    }
-
-    /// `CONNECT_CURRENT_MEDIA`: do not start a new media to establish the
-    /// connection (e.g. do not initiate a new dial-up connection).
-    pub fn current_media(self, yes: bool) -> Self {
-        self.flag(WNet::CONNECT_CURRENT_MEDIA, yes)
-    }
-
-    /// `CONNECT_CMD_SAVECRED`: if the operating system prompts for a
-    /// credential, it is saved by the credential manager.
-    ///
-    /// Windows ignores this flag unless [`interactive`](Self::interactive)
-    /// and [`commandline`](Self::commandline) are also set.
-    pub fn save_credentials(self, yes: bool) -> Self {
-        self.flag(WNet::CONNECT_CMD_SAVECRED, yes)
-    }
-
-    /// `CONNECT_CRED_RESET`: reset the credentials for this connection that
-    /// are saved by the credential manager.
-    ///
-    /// Windows ignores this flag unless [`commandline`](Self::commandline)
-    /// is also set.
-    pub fn reset_credentials(self, yes: bool) -> Self {
-        self.flag(WNet::CONNECT_CRED_RESET, yes)
-    }
-
-    /// `CONNECT_REQUIRE_INTEGRITY`: fail the connection if SMB signing cannot
-    /// be enforced.
+    /// Fail if SMB signing cannot be enforced.
     pub fn require_integrity(self, yes: bool) -> Self {
         self.flag(WNet::CONNECT_REQUIRE_INTEGRITY, yes)
     }
 
-    /// `CONNECT_REQUIRE_PRIVACY`: fail the connection if SMB encryption
-    /// cannot be enforced.
+    /// Fail if SMB encryption cannot be enforced.
     pub fn require_privacy(self, yes: bool) -> Self {
         self.flag(WNet::CONNECT_REQUIRE_PRIVACY, yes)
-    }
-
-    /// `CONNECT_WRITE_THROUGH_SEMANTICS`: writes go through to the server
-    /// before the operation completes (no write caching).
-    pub fn write_through(self, yes: bool) -> Self {
-        self.flag(WNet::CONNECT_WRITE_THROUGH_SEMANTICS, yes)
     }
 }
 
@@ -231,21 +126,14 @@ impl DisconnectOptions {
         Self::default()
     }
 
-    /// Disconnect even if there are open files or jobs on the connection.
-    /// When `false` (the default), disconnecting fails with
-    /// `ERROR_OPEN_FILES` if anything is still open.
+    /// Disconnect even if files or jobs remain open on the mapping.
     pub fn force(mut self, yes: bool) -> Self {
         self.force = yes;
         self
     }
 
-    /// `CONNECT_UPDATE_PROFILE`: update the user profile so this connection
-    /// is no longer persistent — the system will not restore it on the next
-    /// logon. Disconnecting by remote name (deviceless) has no effect on
-    /// persistent connections.
-    ///
-    /// Note: this was called `persist` in sambrs 0.1, which suggested the
-    /// opposite of what the flag does.
+    /// Remove this drive mapping from the user profile so Windows will not
+    /// restore it at the next logon.
     pub fn forget(mut self, yes: bool) -> Self {
         self.forget = yes;
         self
@@ -277,52 +165,32 @@ mod tests {
     }
 
     #[test]
-    fn default_options_are_temporary() {
-        assert_eq!(ConnectOptions::new().flags, WNet::CONNECT_TEMPORARY);
+    fn default_options_are_temporary_and_suppress_recent_deviceless_connections() {
         assert_eq!(
-            ConnectOptions::new()
-                .interactive(true)
-                .interactive(false)
-                .flags,
-            WNet::CONNECT_TEMPORARY
+            ConnectOptions::new().flags,
+            WNet::CONNECT_TEMPORARY | WNet::CONNECT_UPDATE_RECENT
         );
     }
 
     #[test]
     fn persist_replaces_temporary() {
-        let flags = ConnectOptions::new().persist(true).flags;
-        assert_eq!(flags, WNet::CONNECT_UPDATE_PROFILE);
+        assert_eq!(
+            ConnectOptions::new().persist(true).flags,
+            WNet::CONNECT_UPDATE_PROFILE | WNet::CONNECT_UPDATE_RECENT
+        );
     }
 
     #[test]
-    fn all_flags_map() {
-        let flags = ConnectOptions::new()
-            .update_recent(true)
-            .interactive(true)
-            .prompt(true)
-            .commandline(true)
-            .redirect(true)
-            .current_media(true)
-            .save_credentials(true)
-            .reset_credentials(true)
-            .require_integrity(true)
-            .require_privacy(true)
-            .write_through(true)
-            .flags;
+    fn security_options_map() {
         assert_eq!(
-            flags,
+            ConnectOptions::new()
+                .require_integrity(true)
+                .require_privacy(true)
+                .flags,
             WNet::CONNECT_TEMPORARY
                 | WNet::CONNECT_UPDATE_RECENT
-                | WNet::CONNECT_INTERACTIVE
-                | WNet::CONNECT_PROMPT
-                | WNet::CONNECT_COMMANDLINE
-                | WNet::CONNECT_REDIRECT
-                | WNet::CONNECT_CURRENT_MEDIA
-                | WNet::CONNECT_CMD_SAVECRED
-                | WNet::CONNECT_CRED_RESET
                 | WNet::CONNECT_REQUIRE_INTEGRITY
                 | WNet::CONNECT_REQUIRE_PRIVACY
-                | WNet::CONNECT_WRITE_THROUGH_SEMANTICS
         );
     }
 

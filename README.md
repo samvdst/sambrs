@@ -3,45 +3,49 @@
 [![crates.io](https://img.shields.io/crates/v/sambrs.svg)](https://crates.io/crates/sambrs)
 [![docs.rs](https://img.shields.io/docsrs/sambrs)](https://docs.rs/sambrs)
 
-Safe and flexible Rust bindings for Windows SMB share operations.
+Safe, opinionated Windows SMB client operations for existing disk shares.
 
 Sam -> SMB -> Rust -> Samba is taken!? -> sambrs
 
-The crate wraps three areas of the Windows API, aiming to expose the full
-flexibility of the underlying calls behind a safe, unopinionated interface:
+`sambrs` keeps unsafe Windows FFI, UTF-16 conversion, buffer ownership,
+validation, cleanup, and `WNet` quirks out of applications. It supports:
 
-- **Connecting** — `WNetAddConnection2W`, `WNetUseConnectionW`, and
-  `WNetCancelConnection2W`: connect to a share deviceless, mounted on a drive
-  letter of your choice, or on a letter Windows picks. Every documented
-  `CONNECT_*` flag is available through `ConnectOptions`, including
-  per-connection SMB signing (`require_integrity`) and encryption
-  (`require_privacy`) enforcement. An optional RAII `Connection` guard
-  disconnects on drop.
-- **Querying and enumerating** — `WNetGetConnectionW`, `WNetGetUserW`,
-  `WNetGetUniversalNameW`, and the `WNetOpenEnumW` family: inspect existing
-  connections, list remembered ones, and enumerate the shares a server
-  exposes, as a plain Rust `Iterator`.
-- **Administering** — the netapi32 `NetShare*`, `NetSession*`, `NetFile*`,
-  and `NetConnectionEnum` functions: create and delete shares, and manage
-  sessions and open files, on the local machine or a remote server.
+- deviceless, explicit-drive, and automatically assigned connections;
+- temporary and persistent drive mappings;
+- default, paired, and partial credentials;
+- SMB signing and encryption requirements;
+- guarded temporary mappings that disconnect on drop;
+- querying mapped drives, connection users, and universal UNC paths;
+- enumerating active connections, remembered mappings, and a server's disk shares.
 
-All strings cross the FFI boundary as UTF-16 (the `W` API variants), so share
-names, user names, and passwords with any Unicode content work correctly.
+It deliberately does not create or administer shares, handle printers, expose
+raw `WNet` controls, or transfer files. See the [boundary
+ADR](https://github.com/samvdst/sambrs/blob/main/docs/adr/0001-opinionated-smb-client-boundary.md).
+
+Passwords and their temporary UTF-16 buffers are wiped on drop. Operations,
+targets, usernames, options, and raw Windows statuses are emitted through
+`tracing`; passwords are never logged.
 
 ## Installation
 
+The crate is Windows-only, so cross-platform applications should make the
+dependency conditional:
+
 ```toml
-[dependencies]
+[target.'cfg(windows)'.dependencies]
 sambrs = "0.2"
 ```
 
+MSRV is Rust 1.85 (edition 2024).
+
 ## Usage
 
-Configure an `SmbTarget` and establish a connection. Once connected (mounted
-or deviceless), `std::fs` works on it like on any local path:
+Configure an `SmbTarget` and establish a connection. Once connected,
+`std::fs` works on the UNC path or mapped drive like any other filesystem
+path:
 
 ```no_run
-use sambrs::{ConnectOptions, DriveLetter, SmbTarget};
+use sambrs::{ConnectOptions, DisconnectOptions, DriveLetter, SmbTarget};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let target = SmbTarget::new(r"\\server.local\share")
@@ -50,19 +54,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     target.connect_with(
         ConnectOptions::new()
-            .persist(true)          // restore the mapping at logon
-            .require_privacy(true), // enforce SMB encryption
+            .persist(true)
+            .require_privacy(true),
     )?;
 
-    // use std::fs as if D:\ was a local directory
     println!("{}", std::fs::metadata(r"D:\")?.is_dir());
 
-    target.disconnect()?;
+    target.disconnect_with(DisconnectOptions::new().forget(true))?;
     Ok(())
 }
 ```
 
-Without credentials, the connection authenticates as the logged-on user:
+Persistence requires an explicit or automatically assigned drive. A
+deviceless connection uses the UNC path directly and is never remembered:
 
 ```no_run
 # fn main() -> Result<(), sambrs::Error> {
@@ -72,10 +76,21 @@ target.connect()?;
 # }
 ```
 
-Enumerate what a server offers, or administer shares (see the
-[`enumerate`](https://docs.rs/sambrs/latest/sambrs/enumerate/) and
-[`server`](https://docs.rs/sambrs/latest/sambrs/server/) module docs for the
-full API):
+Use a guard for an automatically cleaned-up temporary mapping:
+
+```no_run
+# fn main() -> Result<(), sambrs::Error> {
+let target = sambrs::SmbTarget::new(r"\\server.local\share");
+let connection = target.connect_auto_guarded(sambrs::ConnectOptions::new())?;
+println!("mapped on {}", connection.device());
+# Ok(())
+# }
+```
+
+Guarded connections cannot be persistent because persistence outlives the
+guard.
+
+Inspect existing resources through the focused query and enumeration modules:
 
 ```no_run
 # fn main() -> Result<(), sambrs::Error> {
@@ -83,28 +98,12 @@ for resource in sambrs::enumerate::server_shares(r"\\fileserver")? {
     println!("{:?}", resource?.remote_name);
 }
 
-sambrs::server::add_share(
-    None, // local machine
-    &sambrs::server::NewShare::disk("scratch", r"C:\scratch"),
-)?;
+let remote = sambrs::query::get_connection("D:")?;
+let user = sambrs::query::get_user(Some("D:"))?;
+let unc = sambrs::query::get_universal_name(r"D:\folder\file.txt")?;
 # Ok(())
 # }
 ```
-
-## Cargo features
-
-Both features are off by default — no forced dependencies:
-
-- `tracing` — emit [`tracing`](https://docs.rs/tracing) debug/trace events for
-  every Windows API call.
-- `zeroize` — wipe password buffers (the stored `String` and the transient
-  UTF-16 copies) when they are dropped.
-
-## Platform support
-
-Windows only. On other targets the crate compiles to nothing, so it is safe
-to keep in cross-platform dependency trees; gate your usage behind
-`#[cfg(windows)]`. MSRV is 1.85 (edition 2024).
 
 ## Testing
 
@@ -115,43 +114,38 @@ them at one and include them explicitly:
 SAMBRS_TEST_SHARE=\\server\share
 SAMBRS_TEST_USERNAME=DOMAIN\user
 SAMBRS_TEST_PASSWORD=...
-SAMBRS_TEST_LOCAL=1   # only if the share is local; enables the server:: tests
 
 cargo test -- --include-ignored
 ```
 
-The tests mount real drive letters and must run single-threaded: a git
-checkout sets `RUST_TEST_THREADS=1` via `.cargo/config.toml`; set it yourself
-when running from a packaged copy of the crate.
+The tests mount real drive letters and must run single-threaded. A git
+checkout sets `RUST_TEST_THREADS=1` through `.cargo/config.toml`; set it
+manually when running from a packaged copy.
 
 ## Migrating from 0.1
 
-`0.2` is a rework of the whole API; the most important changes:
+`0.2` is a breaking rework of the API:
 
 | 0.1 | 0.2 |
 | --- | --- |
 | `SmbShare::new(share, user, pass, Some('d'))` | `SmbTarget::new(share).credentials(user, pass).mount_on(DriveLetter::D)` |
-| `share.connect(persist, interactive)` | `target.connect_with(ConnectOptions::new().persist(persist).interactive(interactive))` |
-| `share.disconnect(persist, force)` | `target.disconnect_with(DisconnectOptions::new().forget(persist).force(force))` — note the rename: the old `persist: true` *removed* the persistence |
+| `share.connect(persist, interactive)` | `target.connect_with(ConnectOptions::new().persist(persist))` |
+| `share.disconnect(persist, force)` | `target.disconnect_with(DisconnectOptions::new().forget(persist).force(force))` |
 | `Error::CStringConversion` | `Error::InteriorNul` |
 
-Under the hood, 0.1 used the ANSI (`A`) API variants, which silently mangled
-non-ASCII share names, user names, and passwords; 0.2 uses the wide (`W`)
-variants throughout. Empty-string credentials are no longer the way to say
-"use my logon credentials" — omit them instead (empty string means a real
-empty password now, matching the Windows API).
+The old `persist: true` disconnect argument removed persistence, hence the
+`forget` rename. Version 0.2 uses Unicode Windows APIs throughout and omitting
+credentials now means "use the logged-on Windows identity."
 
 ## License
 
 This project is licensed under the MIT License. See the
-[LICENSE](https://github.com/samvdst/sambrs/blob/main/LICENSE) for details.
+[license](https://github.com/samvdst/sambrs/blob/main/LICENSE).
 
-## Special Thanks
+## Special thanks
 
-Special thanks to [Christian Visintin](https://github.com/veeso) for his
-informative [blog
-post](https://blog.veeso.dev/blog/en/how-to-access-an-smb-share-with-rust-on-windows/)
-on accessing SMB shares with Rust on Windows. If you need a fully-featured
-remote file access solution that works across multiple protocols, you should
-definitely check out his project
+Thanks to [Christian Visintin](https://github.com/veeso) for his [article on
+accessing SMB shares with Rust on
+Windows](https://blog.veeso.dev/blog/en/how-to-access-an-smb-share-with-rust-on-windows/).
+For a fully featured, cross-platform remote-file solution, see
 [remotefs](https://github.com/veeso/remotefs-rs).

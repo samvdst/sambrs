@@ -10,8 +10,7 @@ mod trace;
 
 pub mod enumerate;
 pub mod query;
-pub mod server;
 
 pub use error::{Error, Result};
-pub use options::{ConnectOptions, DisconnectOptions, DriveLetter, ResourceType};
+pub use options::{ConnectOptions, DisconnectOptions, DriveLetter};
 pub use target::{Connection, SmbTarget, cancel_connection};

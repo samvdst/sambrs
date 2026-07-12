@@ -28,15 +28,11 @@ jobs:
           icacls 'C:\sambrs-share' /grant 'smbtest:(OI)(CI)F' | Out-Null
           "SAMBRS_TEST_USERNAME=$env:COMPUTERNAME\smbtest" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Unit + integration tests (all features)
-        run: cargo test --all-features -- --include-ignored
+      - name: Unit + integration tests
+        run: cargo test -- --include-ignored
         env:
           SAMBRS_TEST_SHARE: \\localhost\sambrs-test
           SAMBRS_TEST_PASSWORD: Sambrs-CI-Pass-1!
-          SAMBRS_TEST_LOCAL: '1'
-
-      - name: Unit tests (no default features)
-        run: cargo test
 
   msrv:
     name: MSRV check (Rust 1.85, Windows target)
@@ -49,10 +45,10 @@ jobs:
           targets: x86_64-pc-windows-msvc
 
       - name: crate (incl. tests) compiles on the declared MSRV
-        run: cargo check --target x86_64-pc-windows-msvc --all-targets --all-features
+        run: cargo check --target x86_64-pc-windows-msvc --all-targets
 
   lint:
-    name: Lint, docs, cross-target checks (Linux)
+    name: Lint and docs (Windows target)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -65,12 +61,9 @@ jobs:
         run: cargo fmt --check
 
       - name: clippy (pedantic is enforced in the crate root)
-        run: cargo clippy --target x86_64-pc-windows-msvc --all-targets --all-features -- -D warnings
+        run: cargo clippy --target x86_64-pc-windows-msvc --all-targets -- -D warnings
 
       - name: rustdoc
-        run: cargo doc --target x86_64-pc-windows-msvc --all-features --no-deps
+        run: cargo doc --target x86_64-pc-windows-msvc --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
-
-      - name: crate is a well-behaved no-op on non-Windows hosts
-        run: cargo check --all-features

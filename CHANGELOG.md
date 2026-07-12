@@ -2,80 +2,49 @@
 
 ## 0.2.0 (unreleased)
 
-A ground-up rework: from "a tiny wrapper around two calls" to safe, flexible
-bindings for the Windows SMB surface. **Breaking release** — see the
-migration table in the README.
-
-### Fixed
-
-- **Unicode correctness**: all calls now use the wide (`W`) API variants with
-  UTF-16 strings. 0.1 used the ANSI variants, which mangled non-ASCII share
-  names, user names, and passwords (typically surfacing as spurious
-  `ERROR_LOGON_FAILURE`).
-- `ERROR_EXTENDED_ERROR` no longer swallows the real error: the
-  provider-specific code and message are fetched via `WNetGetLastErrorW` and
-  carried in `Error::ExtendedError`.
-- `disconnect`'s misleading `persist` parameter (which *removed* persistence)
-  is now `DisconnectOptions::forget`.
+A breaking rework into a safe, opinionated Windows client for existing SMB
+disk shares.
 
 ### Added
 
-- Authenticate as the logged-on user by omitting credentials (0.1 always
-  passed non-null credentials, making SSO unreachable).
-- Fluent `SmbTarget` configuration with `credentials`, `username`, `password`,
-  `mount_on` (type-safe `DriveLetter`), `local_device`, `resource_type`
-  (disk/printer), and `provider`.
-- `ConnectOptions` covering every documented `CONNECT_*` flag: `persist`,
-  `update_recent`, `interactive`, `prompt`, `commandline`, `redirect`,
-  `current_media`, `save_credentials`, `reset_credentials`,
-  `require_integrity` (SMB signing), `require_privacy` (SMB encryption), and
-  `write_through`.
-- `SmbTarget::connect_auto`: let Windows pick a free drive letter
-  (`WNetUseConnectionW`), returning the assigned name.
-- `SmbTarget::connect_guarded` / `connect_auto_guarded`: RAII `Connection`
-  guard that disconnects on drop, with `leak()` and explicit `disconnect()`.
-  A guard always owns a redirected local device and cancels exactly that
-  device, so dropping it can never tear down a connection it did not create.
-  Deviceless targets are rejected with `ERROR_INVALID_PARAMETER` (Windows does not
-  reference-count deviceless connections, so no guard can own one); see the
-  `Connection` docs.
-- `cancel_connection`: disconnect any connection by device or remote name.
-- `query` module: `get_connection`, `get_user`, `get_universal_name`.
-- `enumerate` module: iterate active connections, remembered connections, and
-  the shares a server exposes (`WNetOpenEnumW` family), plus `resources_raw`.
-- `server` module (netapi32): `shares`, `share_info`, `add_share`,
-  `delete_share`, `sessions`, `delete_session`, `open_files`, `close_file`,
-  `connections` — with automatic fallback to lower information levels when
-  not administrator. `delete_session` requires a non-empty client and/or
-  user filter (`ERROR_INVALID_PARAMETER` otherwise — netapi32 treats an empty
-  string as no filter); ending every session on a server is the separate,
-  explicit `delete_all_sessions`.
-- `Error::Windows` resolves `NERR_*` codes (2100–2999) through netmsg.dll, so
-  undocumented netapi32 errors display their real message instead of an
-  unknown-error placeholder.
-- `Error::raw_os_error` and `From<Error> for std::io::Error`. Converting an
-  `ExtendedError` keeps the error as the `io::Error` payload, so the
-  provider's own code, description, and name survive instead of collapsing
-  into the generic `ERROR_EXTENDED_ERROR` (1208) message.
-- Cargo features: `tracing` (now optional!) and `zeroize` (wipe password
-  buffers on drop).
-- The `server` enumeration loop fails with `Error::Windows(ERROR_MORE_DATA)`
-  instead of spinning forever when a malformed server keeps reporting
-  `ERROR_MORE_DATA` without delivering entries or terminating. Similarly,
-  `connect_auto` sizes its access-name buffer to fit any real access name up
-  front and fails instead of retrying: Windows leaves undocumented whether a
-  call that failed with `ERROR_MORE_DATA` already established the
-  connection, so a retry could create a second one.
+- `SmbTarget` connections using the logged-on identity, paired credentials, or
+  partial username/password credentials.
+- Deviceless, explicit-drive, and automatically assigned connections.
+- Persistent drive mappings and explicit `force`/`forget` disconnect options.
+- `ConnectOptions::require_integrity` for SMB signing and
+  `require_privacy` for SMB encryption.
+- RAII `Connection` guards for temporary drive mappings, with explicit
+  disconnect and leak operations.
+- Focused queries for mapped-drive targets, connection users, and universal
+  UNC paths.
+- Disk-focused enumeration of active connections, remembered mappings, and a
+  server's existing shares.
+- Provider-specific extended errors from `WNetGetLastErrorW`.
+- Unconditional detailed `tracing` events. Usernames and targets are logged;
+  passwords never are.
+- Unconditional zeroization of stored and transient UTF-16 password buffers.
 
 ### Changed
 
-- `Error` is `#[non_exhaustive]`; Windows and `NERR_*` statuses are exposed as
-  `Error::Windows(code)`, while input-validation and provider-specific errors
-  retain dedicated variants. `Error::CStringConversion` is now
-  `Error::InteriorNul`.
-- `windows-sys` 0.52 → 0.60; dependencies are declared Windows-only, and the
-  crate compiles to nothing on other targets.
-- docs.rs builds Windows targets; MSRV pinned at 1.85.
+- All Windows calls use Unicode (`W`) APIs.
+- Windows statuses are preserved as `Error::Windows(code)` while
+  crate-originated validation and provider-specific errors remain typed.
+- Persistence requires a drive mapping; guarded connections cannot persist;
+  forgetting requires a drive mapping. Invalid combinations fail before a
+  Windows call.
+- Deviceless connections are kept out of Windows' recent-connections list.
+- Dependencies and API are Windows-only; cross-platform consumers must gate
+  the dependency and usage with `cfg(windows)`.
+- `windows-sys` 0.52 → 0.60; MSRV is Rust 1.85.
+
+### Removed
+
+- Server administration and share creation.
+- Printer resources, arbitrary local devices, and custom provider selection.
+- Raw WNet enumeration and metadata.
+- Interactive authentication, connection-wide write-through, and other raw
+  `CONNECT_*` controls outside persistence, signing, and encryption.
+- `Error::raw_os_error` and conversion into `std::io::Error`.
 
 ## 0.1.2
 
