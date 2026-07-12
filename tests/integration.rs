@@ -13,16 +13,12 @@ use windows_sys::Win32::NetworkManagement::NetManagement::{
     NERR_DuplicateShare as NERR_DUPLICATE_SHARE, NERR_NetNameNotFound as NERR_NET_NAME_NOT_FOUND,
 };
 
-fn share_name() -> String {
-    std::env::var("SAMBRS_TEST_SHARE").expect("SAMBRS_TEST_SHARE must be set")
-}
+const SHARE: &str = "SAMBRS_TEST_SHARE";
+const USERNAME: &str = "SAMBRS_TEST_USERNAME";
+const PASSWORD: &str = "SAMBRS_TEST_PASSWORD";
 
-fn username() -> String {
-    std::env::var("SAMBRS_TEST_USERNAME").expect("SAMBRS_TEST_USERNAME must be set")
-}
-
-fn password() -> String {
-    std::env::var("SAMBRS_TEST_PASSWORD").expect("SAMBRS_TEST_PASSWORD must be set")
+fn required_env(name: &str) -> String {
+    std::env::var(name).unwrap_or_else(|_| panic!("{name} must be set"))
 }
 
 /// `server::*` tests only make sense against the local machine, with rights
@@ -32,11 +28,9 @@ fn local_admin() -> bool {
 }
 
 fn target(mount: Option<DriveLetter>) -> SmbTarget {
-    let target = SmbTarget::new(share_name()).credentials(username(), password());
-    match mount {
-        Some(letter) => target.mount_on(letter),
-        None => target,
-    }
+    let target = SmbTarget::new(required_env(SHARE))
+        .credentials(required_env(USERNAME), required_env(PASSWORD));
+    mount.into_iter().fold(target, SmbTarget::mount_on)
 }
 
 fn drive_exists(letter: DriveLetter) -> bool {
@@ -49,8 +43,8 @@ fn drive_exists(letter: DriveLetter) -> bool {
 #[test]
 #[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn wrong_password_fails_without_prompting() {
-    let target =
-        SmbTarget::new(share_name()).credentials(username(), "definitely-the-wrong-password-1");
+    let target = SmbTarget::new(required_env(SHARE))
+        .credentials(required_env(USERNAME), "definitely-the-wrong-password-1");
     let result = target.connect();
     assert!(
         matches!(
@@ -66,8 +60,8 @@ fn wrong_password_fails_without_prompting() {
 #[test]
 #[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn nonexistent_share_fails() {
-    let target =
-        SmbTarget::new(r"\\thisisnotashare.local\Share-Name").credentials(username(), password());
+    let target = SmbTarget::new(r"\\thisisnotashare.local\Share-Name")
+        .credentials(required_env(USERNAME), required_env(PASSWORD));
     let result = target.connect();
     // The documented WNetAddConnection2W error list is not exhaustive;
     // unresolvable hosts commonly surface as ERROR_BAD_NETPATH (53) or
@@ -90,7 +84,7 @@ fn deviceless_connect_and_reconnect_works() {
     target.connect().unwrap();
     // Reconnecting a deviceless connection is fine.
     target.connect().unwrap();
-    assert!(std::path::Path::new(&share_name()).is_dir());
+    assert!(std::path::Path::new(&required_env(SHARE)).is_dir());
     target.disconnect().unwrap();
 }
 
@@ -215,9 +209,9 @@ fn get_connection_returns_the_remote_name() {
     target.connect().unwrap();
     let remote = query::get_connection("W:").unwrap();
     assert!(
-        remote.eq_ignore_ascii_case(&share_name()),
+        remote.eq_ignore_ascii_case(&required_env(SHARE)),
         "{remote} != {}",
-        share_name()
+        required_env(SHARE)
     );
     target.disconnect().unwrap();
 }
@@ -240,9 +234,9 @@ fn get_universal_name_resolves_a_mounted_path() {
     let unc = query::get_universal_name(r"W:\").unwrap();
     assert!(
         unc.to_ascii_lowercase()
-            .starts_with(&share_name().to_ascii_lowercase()),
+            .starts_with(&required_env(SHARE).to_ascii_lowercase()),
         "{unc} does not start with {}",
-        share_name()
+        required_env(SHARE)
     );
     target.disconnect().unwrap();
 }
@@ -259,7 +253,7 @@ fn enumerate_connections_contains_the_share() {
         .filter_map(Result::ok)
         .any(|r| {
             r.remote_name
-                .is_some_and(|n| n.eq_ignore_ascii_case(&share_name()))
+                .is_some_and(|n| n.eq_ignore_ascii_case(&required_env(SHARE)))
         });
     target.disconnect().unwrap();
     assert!(found, "active connection to the test share not enumerated");
@@ -269,7 +263,7 @@ fn enumerate_connections_contains_the_share() {
 #[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn enumerate_server_shares_contains_the_share() {
     // \\server\share -> \\server
-    let full = share_name();
+    let full = required_env(SHARE);
     let server = full.trim_start_matches('\\').split('\\').next().unwrap();
     let server_root = format!(r"\\{server}");
     // Authenticate first: servers may refuse anonymous enumeration.
@@ -292,7 +286,7 @@ fn server_shares_lists_the_test_share() {
         eprintln!("skipped: SAMBRS_TEST_LOCAL != 1");
         return;
     }
-    let leaf = share_name().rsplit('\\').next().unwrap().to_string();
+    let leaf = required_env(SHARE).rsplit('\\').next().unwrap().to_string();
     let all = server::shares(None).unwrap();
     assert!(
         all.iter().any(|s| s.name.eq_ignore_ascii_case(&leaf)),
@@ -340,7 +334,7 @@ fn server_sessions_and_connections_are_listable() {
         eprintln!("skipped: SAMBRS_TEST_LOCAL != 1");
         return;
     }
-    let leaf = share_name().rsplit('\\').next().unwrap().to_string();
+    let leaf = required_env(SHARE).rsplit('\\').next().unwrap().to_string();
     let target = target(None);
     target.connect().unwrap();
 
