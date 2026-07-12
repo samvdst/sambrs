@@ -27,8 +27,6 @@ pub struct NetResource {
     pub local_name: Option<String>,
     /// Remote name, e.g. `\\server\share`.
     pub remote_name: Option<String>,
-    pub comment: Option<String>,
-    pub provider: Option<String>,
 }
 
 /// Iterator over enumerated [`NetResource`] entries. Closes the enumeration
@@ -106,8 +104,6 @@ impl Resources {
                         NetResource {
                             local_name: from_pwstr(raw.lpLocalName),
                             remote_name: from_pwstr(raw.lpRemoteName),
-                            comment: from_pwstr(raw.lpComment),
-                            provider: from_pwstr(raw.lpProvider),
                         }
                     }));
                     return Ok(());

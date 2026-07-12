@@ -14,7 +14,7 @@ disk shares.
 - `ConnectOptions::require_integrity` for SMB signing and
   `require_privacy` for SMB encryption.
 - RAII `Connection` guards for temporary drive mappings, with explicit
-  disconnect and leak operations.
+  disconnection.
 - Focused queries for mapped-drive targets, connection users, and universal
   UNC paths.
 - Disk-focused enumeration of active connections, remembered mappings, and a

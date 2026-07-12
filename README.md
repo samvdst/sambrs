@@ -99,7 +99,7 @@ for resource in sambrs::enumerate::server_shares(r"\\fileserver")? {
 }
 
 let remote = sambrs::query::get_connection("D:")?;
-let user = sambrs::query::get_user(Some("D:"))?;
+let user = sambrs::query::get_user("D:")?;
 let unc = sambrs::query::get_universal_name(r"D:\folder\file.txt")?;
 # Ok(())
 # }

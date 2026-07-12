@@ -3,7 +3,7 @@
 //! on redirected drives.
 
 use crate::error::{Error, Result, wnet_extended_error};
-use crate::strings::{from_pwstr, len_u32, opt_ptr, to_wide};
+use crate::strings::{from_pwstr, len_u32, to_wide};
 use tracing::{debug, trace};
 use windows_sys::Win32::Foundation::{ERROR_EXTENDED_ERROR, ERROR_MORE_DATA, NO_ERROR};
 use windows_sys::Win32::NetworkManagement::WNet;
@@ -50,20 +50,16 @@ pub fn get_connection(drive: &str) -> Result<String> {
 
 /// The user name used to establish a connection, via `WNetGetUserW`.
 ///
-/// `connection` is a local device (`"Z:"`) or a remote name; `None` returns
-/// the name of the current user of the process.
+/// `connection` is a local device (`"Z:"`) or a remote name.
 ///
 /// # Errors
 /// `ERROR_NOT_CONNECTED` if the name is not a connected resource.
-pub fn get_user(connection: Option<&str>) -> Result<String> {
-    trace!(
-        "querying user for {}",
-        connection.unwrap_or("<current process>")
-    );
-    let name = connection.map(to_wide).transpose()?;
-    // SAFETY: `name` (when present) outlives the call.
+pub fn get_user(connection: &str) -> Result<String> {
+    trace!("querying user for {connection}");
+    let name = to_wide(connection)?;
+    // SAFETY: `name` outlives the call.
     let user = wide_out("WNetGetUserW", |buf, len| unsafe {
-        WNet::WNetGetUserW(opt_ptr(name.as_deref()), buf, len)
+        WNet::WNetGetUserW(name.as_ptr(), buf, len)
     })?;
     debug!("WNetGetUserW resolved user {user}");
     Ok(user)

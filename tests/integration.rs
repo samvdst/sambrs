@@ -150,18 +150,6 @@ fn force_disconnect_with_open_file_works() {
 
 // ── RAII guard ──────────────────────────────────────────────────────────────
 
-#[test]
-#[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
-fn guard_leak_keeps_the_connection() {
-    let target = target(Some(DriveLetter::V));
-    target
-        .connect_guarded(ConnectOptions::new())
-        .unwrap()
-        .leak();
-    assert!(drive_exists(DriveLetter::V));
-    target.disconnect().unwrap();
-}
-
 // The ownership property behind the guard design: a guard cancels only the
 // device it owns, so dropping it must not tear down an independent deviceless
 // connection to the same resource.
@@ -234,7 +222,7 @@ fn get_connection_returns_the_remote_name() {
 fn get_user_returns_a_user() {
     let target = target(Some(DriveLetter::W));
     target.connect().unwrap();
-    let user = query::get_user(Some("W:")).unwrap();
+    let user = query::get_user("W:").unwrap();
     assert!(!user.is_empty());
     target.disconnect().unwrap();
 }

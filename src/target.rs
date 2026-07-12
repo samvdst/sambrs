@@ -376,8 +376,7 @@ fn is_drive(name: &str) -> bool {
 /// by remote name, which takes every deviceless connection to the resource
 /// down with it.)
 ///
-/// Use [`Connection::disconnect`] for explicit error handling, or
-/// [`Connection::leak`] to keep the connection open past the guard.
+/// Use [`Connection::disconnect`] for explicit error handling.
 #[derive(Debug)]
 #[must_use = "dropping the guard disconnects the connection immediately"]
 pub struct Connection {
@@ -392,11 +391,6 @@ impl Connection {
     #[must_use]
     pub fn device(&self) -> &str {
         &self.device
-    }
-
-    /// Consume the guard without disconnecting, keeping the connection open.
-    pub fn leak(mut self) {
-        self.armed = false;
     }
 
     /// Disconnect now, with explicit error handling.
