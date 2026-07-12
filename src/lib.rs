@@ -14,4 +14,4 @@ pub mod server;
 
 pub use error::{Error, Result};
 pub use options::{ConnectOptions, DisconnectOptions, DriveLetter, ResourceType};
-pub use share::{Connection, SmbShare, SmbShareBuilder, cancel_connection};
+pub use share::{Connection, SmbShare, cancel_connection};

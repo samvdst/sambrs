@@ -22,14 +22,14 @@ migration table in the README.
 
 - Authenticate as the logged-on user by omitting credentials (0.1 always
   passed non-null credentials, making SSO unreachable).
-- `SmbShare::builder` with `credentials`, `username`, `password`, `mount_on`
-  (type-safe `DriveLetter`), `local_device`, `resource_type` (disk/printer),
-  and `provider`.
+- Fluent `SmbShare` configuration with `credentials`, `username`, `password`,
+  `mount_on` (type-safe `DriveLetter`), `local_device`, `resource_type`
+  (disk/printer), and `provider`.
 - `ConnectOptions` covering every documented `CONNECT_*` flag: `persist`,
   `update_recent`, `interactive`, `prompt`, `commandline`, `redirect`,
   `current_media`, `save_credentials`, `reset_credentials`,
   `require_integrity` (SMB signing), `require_privacy` (SMB encryption), and
-  `write_through`, plus `SmbShare::connect_raw` as an escape hatch.
+  `write_through`.
 - `SmbShare::connect_auto`: let Windows pick a free drive letter
   (`WNetUseConnectionW`), returning the assigned name.
 - `SmbShare::connect_guarded` / `connect_auto_guarded`: RAII `Connection`

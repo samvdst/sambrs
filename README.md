@@ -44,10 +44,9 @@ or deviceless), `std::fs` works on it like on any local path:
 use sambrs::{ConnectOptions, DriveLetter, SmbShare};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let share = SmbShare::builder(r"\\server.local\share")
+    let share = SmbShare::new(r"\\server.local\share")
         .credentials(r"LOGONDOMAIN\user", "pass")
-        .mount_on(DriveLetter::D)
-        .build()?;
+        .mount_on(DriveLetter::D);
 
     share.connect_with(
         ConnectOptions::new()
@@ -131,7 +130,7 @@ when running from a packaged copy of the crate.
 
 | 0.1 | 0.2 |
 | --- | --- |
-| `SmbShare::new(share, user, pass, Some('d'))` | `SmbShare::builder(share).credentials(user, pass).mount_on(DriveLetter::D).build()?` |
+| `SmbShare::new(share, user, pass, Some('d'))` | `SmbShare::new(share).credentials(user, pass).mount_on(DriveLetter::D)` |
 | `share.connect(persist, interactive)` | `share.connect_with(ConnectOptions::new().persist(persist).interactive(interactive))` |
 | `share.disconnect(persist, force)` | `share.disconnect_with(DisconnectOptions::new().forget(persist).force(force))` — note the rename: the old `persist: true` *removed* the persistence |
 | `Error::CStringConversion` | `Error::InteriorNul` |

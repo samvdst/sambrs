@@ -51,17 +51,15 @@ impl ConnectArgs {
 
 /// A remote SMB share, optionally redirected to a local device.
 ///
-/// Construct one with [`SmbShare::new`] (deviceless, current-user
-/// credentials) or [`SmbShare::builder`] for full control, then establish the
-/// connection with one of the `connect*` methods.
+/// Construct one with [`SmbShare::new`], configure it with the fluent setters,
+/// then establish the connection with one of the `connect*` methods.
 ///
 /// ```no_run
 /// use sambrs::{DriveLetter, SmbShare};
 ///
-/// let share = SmbShare::builder(r"\\server\share")
+/// let share = SmbShare::new(r"\\server\share")
 ///     .credentials("user", "pass")
-///     .mount_on(DriveLetter::D)
-///     .build()?;
+///     .mount_on(DriveLetter::D);
 ///
 /// share.connect()?;
 /// // use std::fs as if D:\ was a local directory
@@ -103,9 +101,6 @@ impl Drop for SmbShare {
 impl SmbShare {
     /// A deviceless connection to `remote` (e.g. `\\server\share`) using the
     /// credentials of the currently logged-on user.
-    ///
-    /// Use [`SmbShare::builder`] to set credentials, a local mount point, a
-    /// resource type, or a network provider.
     pub fn new(remote: impl Into<String>) -> Self {
         Self {
             remote: remote.into(),
@@ -117,31 +112,77 @@ impl SmbShare {
         }
     }
 
-    /// Start building a share representation with full control over
-    /// credentials, mount point, resource type, and provider.
-    pub fn builder(remote: impl Into<String>) -> SmbShareBuilder {
-        SmbShareBuilder {
-            share: Self::new(remote),
+    /// Authenticate with an explicit user name and password.
+    ///
+    /// The user name can carry a domain (`DOMAIN\user` or `user@domain`).
+    /// Without credentials, the connection uses the logged-on user's
+    /// credentials. An empty password string is a real (empty) password, not
+    /// "no password".
+    #[must_use]
+    pub fn credentials(self, username: impl Into<String>, password: impl Into<String>) -> Self {
+        self.username(username).password(password)
+    }
+
+    /// Set only the user name; Windows will use the default password
+    /// associated with that user.
+    #[must_use]
+    pub fn username(mut self, username: impl Into<String>) -> Self {
+        self.username = Some(username.into());
+        self
+    }
+
+    /// Set only the password; Windows will use the default user name.
+    #[must_use]
+    pub fn password(mut self, password: impl Into<String>) -> Self {
+        // Wipe any previously set password before the assignment drops it.
+        #[cfg(feature = "zeroize")]
+        {
+            use zeroize::Zeroize;
+            self.password.zeroize();
         }
+        self.password = Some(password.into());
+        self
+    }
+
+    /// Redirect the share to a local drive letter.
+    #[must_use]
+    pub fn mount_on(mut self, letter: DriveLetter) -> Self {
+        self.local = Some(letter.to_string());
+        self
+    }
+
+    /// Redirect to an arbitrary local device name (e.g. `"LPT1"` for a
+    /// printer share). Prefer [`mount_on`](Self::mount_on) for drive letters;
+    /// this escape hatch is passed to Windows unvalidated.
+    #[must_use]
+    pub fn local_device(mut self, device: impl Into<String>) -> Self {
+        self.local = Some(device.into());
+        self
+    }
+
+    /// The resource type to connect to. Defaults to [`ResourceType::Disk`].
+    ///
+    /// [`ResourceType::Any`] is only valid for deviceless connections; see
+    /// its documentation.
+    #[must_use]
+    pub fn resource_type(mut self, resource_type: ResourceType) -> Self {
+        self.resource_type = resource_type;
+        self
+    }
+
+    /// The network provider to use (`lpProvider`). Microsoft: set this only
+    /// if you know the network provider you want; otherwise let the operating
+    /// system determine which provider the network name maps to.
+    #[must_use]
+    pub fn provider(mut self, provider: impl Into<String>) -> Self {
+        self.provider = Some(provider.into());
+        self
     }
 
     /// The remote name, e.g. `\\server\share`.
     #[must_use]
     pub fn remote(&self) -> &str {
         &self.remote
-    }
-
-    /// The local device this share is redirected to (e.g. `"D:"`), if any.
-    #[must_use]
-    pub fn local_device(&self) -> Option<&str> {
-        self.local.as_deref()
-    }
-
-    /// The user name used to authenticate; `None` means the credentials of
-    /// the currently logged-on user.
-    #[must_use]
-    pub fn username(&self) -> Option<&str> {
-        self.username.as_deref()
     }
 
     /// Connect with default options: a temporary, non-interactive connection.
@@ -165,15 +206,7 @@ impl SmbShare {
     /// See [`Error`] — every documented `WNetAddConnection2W` failure has a
     /// dedicated variant.
     pub fn connect_with(&self, options: ConnectOptions) -> Result<()> {
-        self.connect_raw(options.to_flags())
-    }
-
-    /// Connect passing `dwFlags` verbatim to `WNetAddConnection2W` — an
-    /// escape hatch when [`ConnectOptions`] doesn't expose a flag you need.
-    ///
-    /// # Errors
-    /// See [`Error`].
-    pub fn connect_raw(&self, flags: u32) -> Result<()> {
+        let flags = options.to_flags();
         let args = ConnectArgs::new(self)?;
         let resource = args.resource();
 
@@ -212,15 +245,7 @@ impl SmbShare {
     /// # Errors
     /// See [`Error`].
     pub fn connect_auto(&self, options: ConnectOptions) -> Result<String> {
-        self.connect_auto_raw(options.to_flags() | WNet::CONNECT_REDIRECT)
-    }
-
-    /// [`connect_auto`](Self::connect_auto) with verbatim `dwFlags` (note:
-    /// `CONNECT_REDIRECT` is *not* added for you here).
-    ///
-    /// # Errors
-    /// See [`Error`].
-    pub fn connect_auto_raw(&self, flags: u32) -> Result<String> {
+        let flags = options.to_flags() | WNet::CONNECT_REDIRECT;
         let args = ConnectArgs::new(self)?;
         let resource = args.resource();
 
@@ -237,9 +262,8 @@ impl SmbShare {
         let mut access_name = vec![0u16; 1024 + args.remote.len()];
         let mut size = len_u32(access_name.len());
         let mut result = 0u32;
-        // SAFETY: as in `connect_raw` — `args` (which every pointer in
-        // `resource` and the credential pointers borrow from) and
-        // `access_name` outlive the call.
+        // SAFETY: `args` (which every pointer in `resource` and the
+        // credential pointers borrow from) and `access_name` outlive the call.
         let status = unsafe {
             WNet::WNetUseConnectionW(
                 std::ptr::null_mut(), // no owner window for credential dialogs
@@ -260,9 +284,8 @@ impl SmbShare {
     /// Connect and return an RAII [`Connection`] guard that disconnects when
     /// dropped.
     ///
-    /// Requires a local device (set via
-    /// [`mount_on`](SmbShareBuilder::mount_on) /
-    /// [`local_device`](SmbShareBuilder::local_device)): the device is the
+    /// Requires a local device (set via [`mount_on`](Self::mount_on) or
+    /// [`local_device`](Self::local_device)): the device is the
     /// one thing a guard can exclusively own — connecting fails with
     /// [`Error::AlreadyAssigned`] if it is taken, and canceling it by name on
     /// drop touches no other connection. A deviceless connection offers no
@@ -352,99 +375,6 @@ pub fn cancel_connection(name: &str, options: DisconnectOptions) -> Result<()> {
     check_wnet(status)
 }
 
-/// Builder for [`SmbShare`], created via [`SmbShare::builder`].
-#[derive(Debug)]
-pub struct SmbShareBuilder {
-    share: SmbShare,
-}
-
-impl SmbShareBuilder {
-    /// Authenticate with an explicit user name and password.
-    ///
-    /// The user name can carry a domain (`DOMAIN\user` or `user@domain`).
-    /// Without credentials, the connection uses the logged-on user's
-    /// credentials. An empty password string is a real (empty) password, not
-    /// "no password".
-    #[must_use]
-    pub fn credentials(self, username: impl Into<String>, password: impl Into<String>) -> Self {
-        self.username(username).password(password)
-    }
-
-    /// Set only the user name; Windows will use the default password
-    /// associated with that user.
-    #[must_use]
-    pub fn username(mut self, username: impl Into<String>) -> Self {
-        self.share.username = Some(username.into());
-        self
-    }
-
-    /// Set only the password; Windows will use the default user name.
-    #[must_use]
-    pub fn password(mut self, password: impl Into<String>) -> Self {
-        // Wipe any previously set password before the assignment drops it.
-        #[cfg(feature = "zeroize")]
-        {
-            use zeroize::Zeroize;
-            self.share.password.zeroize();
-        }
-        self.share.password = Some(password.into());
-        self
-    }
-
-    /// Redirect the share to a local drive letter.
-    #[must_use]
-    pub fn mount_on(mut self, letter: DriveLetter) -> Self {
-        self.share.local = Some(letter.to_string());
-        self
-    }
-
-    /// Redirect to an arbitrary local device name (e.g. `"LPT1"` for a
-    /// printer share). Prefer [`mount_on`](Self::mount_on) for drive letters;
-    /// this escape hatch is passed to Windows unvalidated.
-    #[must_use]
-    pub fn local_device(mut self, device: impl Into<String>) -> Self {
-        self.share.local = Some(device.into());
-        self
-    }
-
-    /// The resource type to connect to. Defaults to [`ResourceType::Disk`].
-    ///
-    /// [`ResourceType::Any`] is only valid for deviceless connections; see
-    /// its documentation.
-    #[must_use]
-    pub fn resource_type(mut self, resource_type: ResourceType) -> Self {
-        self.share.resource_type = resource_type;
-        self
-    }
-
-    /// The network provider to use (`lpProvider`). Microsoft: set this only
-    /// if you know the network provider you want; otherwise let the operating
-    /// system determine which provider the network name maps to.
-    #[must_use]
-    pub fn provider(mut self, provider: impl Into<String>) -> Self {
-        self.share.provider = Some(provider.into());
-        self
-    }
-
-    /// Validate the configuration and build the [`SmbShare`].
-    ///
-    /// # Errors
-    /// [`Error::InteriorNul`] if any string contains a NUL character.
-    pub fn build(self) -> Result<SmbShare> {
-        let strings = [
-            Some(self.share.remote.as_str()),
-            self.share.username.as_deref(),
-            self.share.password.as_deref(),
-            self.share.local.as_deref(),
-            self.share.provider.as_deref(),
-        ];
-        if strings.into_iter().flatten().any(|s| s.contains('\0')) {
-            return Err(Error::InteriorNul);
-        }
-        Ok(self.share)
-    }
-}
-
 /// RAII guard returned by [`SmbShare::connect_guarded`] and
 /// [`SmbShare::connect_auto_guarded`]: cancels the connection when dropped
 /// (best effort — a failure on drop is only visible as a `tracing` event,
@@ -504,6 +434,18 @@ impl Drop for Connection {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn configures_share_fluently() {
+        let share = SmbShare::new(r"\\server\share")
+            .credentials("user", "pass")
+            .mount_on(DriveLetter::D)
+            .provider("provider");
+        assert_eq!(share.username.as_deref(), Some("user"));
+        assert_eq!(share.password.as_deref(), Some("pass"));
+        assert_eq!(share.local.as_deref(), Some("D:"));
+        assert_eq!(share.provider.as_deref(), Some("provider"));
+    }
 
     #[test]
     fn deviceless_connect_guarded_is_rejected() {

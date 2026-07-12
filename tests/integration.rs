@@ -25,11 +25,11 @@ fn local_admin() -> bool {
 }
 
 fn share(mount: Option<DriveLetter>) -> SmbShare {
-    let mut builder = SmbShare::builder(share_name()).credentials(username(), password());
-    if let Some(letter) = mount {
-        builder = builder.mount_on(letter);
+    let share = SmbShare::new(share_name()).credentials(username(), password());
+    match mount {
+        Some(letter) => share.mount_on(letter),
+        None => share,
     }
-    builder.build().expect("test credentials contain no NUL")
 }
 
 fn drive_exists(letter: DriveLetter) -> bool {
@@ -43,10 +43,8 @@ fn drive_exists(letter: DriveLetter) -> bool {
 #[test]
 #[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn wrong_password_fails_without_prompting() {
-    let share = SmbShare::builder(share_name())
-        .credentials(username(), "definitely-the-wrong-password-1")
-        .build()
-        .unwrap();
+    let share =
+        SmbShare::new(share_name()).credentials(username(), "definitely-the-wrong-password-1");
     let result = share.connect();
     assert!(
         matches!(
@@ -60,10 +58,8 @@ fn wrong_password_fails_without_prompting() {
 #[test]
 #[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn nonexistent_share_fails() {
-    let share = SmbShare::builder(r"\\thisisnotashare.local\Share-Name")
-        .credentials(username(), password())
-        .build()
-        .unwrap();
+    let share =
+        SmbShare::new(r"\\thisisnotashare.local\Share-Name").credentials(username(), password());
     let result = share.connect();
     // The documented WNetAddConnection2W error list is not exhaustive
     // ("Other: use FormatMessage"): unresolvable hosts commonly surface as
