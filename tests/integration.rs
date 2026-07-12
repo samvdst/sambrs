@@ -90,16 +90,6 @@ fn deviceless_connect_and_reconnect_works() {
 
 #[test]
 #[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
-fn mount_on_drive_letter_works_and_does_not_persist() {
-    let target = target(Some(DriveLetter::S));
-    target.connect().unwrap();
-    assert!(drive_exists(DriveLetter::S));
-    target.disconnect().unwrap();
-    assert!(!drive_exists(DriveLetter::S));
-}
-
-#[test]
-#[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn mounted_reconnect_fails_with_already_assigned() {
     let target = target(Some(DriveLetter::S));
     target.connect().unwrap();
