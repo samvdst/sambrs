@@ -73,17 +73,17 @@ pub enum ResourceType {
     /// Only valid for deviceless connections: Windows rejects it with
     /// [`Error::InvalidParameter`] when a local device is redirected —
     /// whether configured explicitly or chosen automatically by
-    /// [`SmbShare::connect_auto`](crate::SmbShare::connect_auto).
+    /// [`SmbTarget::connect_auto`](crate::SmbTarget::connect_auto).
     Any = WNet::RESOURCETYPE_ANY,
 }
 
-/// Options for [`SmbShare::connect_with`](crate::SmbShare::connect_with),
+/// Options for [`SmbTarget::connect_with`](crate::SmbTarget::connect_with),
 /// covering every documented `CONNECT_*` flag of `WNetAddConnection2W` /
 /// `WNetUseConnectionW`.
 ///
 /// The default (`ConnectOptions::new()`) is a temporary, non-interactive
 /// connection — the same behavior as
-/// [`SmbShare::connect`](crate::SmbShare::connect).
+/// [`SmbTarget::connect`](crate::SmbTarget::connect).
 ///
 /// ```
 /// use sambrs::ConnectOptions;
@@ -221,7 +221,7 @@ impl ConnectOptions {
     }
 }
 
-/// Options for [`SmbShare::disconnect_with`](crate::SmbShare::disconnect_with)
+/// Options for [`SmbTarget::disconnect_with`](crate::SmbTarget::disconnect_with)
 /// and [`cancel_connection`](crate::cancel_connection).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[must_use]

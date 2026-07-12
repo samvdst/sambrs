@@ -5,7 +5,7 @@ use crate::trace::{debug, trace};
 use windows_sys::Win32::NetworkManagement::WNet;
 
 /// The wide-string buffers and resource type for one connect call, converted
-/// from an [`SmbShare`].
+/// from an [`SmbTarget`].
 ///
 /// Owning them in one struct pins down the borrow discipline: the struct must
 /// outlive the FFI call because every pointer passed to it borrows from the
@@ -20,15 +20,15 @@ struct ConnectArgs {
 }
 
 impl ConnectArgs {
-    fn new(share: &SmbShare) -> Result<Self> {
-        let password = share.password.as_deref().map(to_wide).transpose()?;
+    fn new(target: &SmbTarget) -> Result<Self> {
+        let password = target.password.as_deref().map(to_wide).transpose()?;
         Ok(Self {
-            remote: to_wide(&share.remote)?,
-            local: share.local.as_deref().map(to_wide).transpose()?,
-            provider: share.provider.as_deref().map(to_wide).transpose()?,
-            username: share.username.as_deref().map(to_wide).transpose()?,
+            remote: to_wide(&target.remote)?,
+            local: target.local.as_deref().map(to_wide).transpose()?,
+            provider: target.provider.as_deref().map(to_wide).transpose()?,
+            username: target.username.as_deref().map(to_wide).transpose()?,
             password: password.map(WideSecret::from),
-            resource_type: share.resource_type,
+            resource_type: target.resource_type,
         })
     }
 
@@ -49,25 +49,26 @@ impl ConnectArgs {
     }
 }
 
-/// A remote SMB share, optionally redirected to a local device.
+/// A reusable target for SMB connections, optionally redirected to a local
+/// device.
 ///
-/// Construct one with [`SmbShare::new`], configure it with the fluent setters,
+/// Construct one with [`SmbTarget::new`], configure it with the fluent setters,
 /// then establish the connection with one of the `connect*` methods.
 ///
 /// ```no_run
-/// use sambrs::{DriveLetter, SmbShare};
+/// use sambrs::{DriveLetter, SmbTarget};
 ///
-/// let share = SmbShare::new(r"\\server\share")
+/// let target = SmbTarget::new(r"\\server\share")
 ///     .credentials("user", "pass")
 ///     .mount_on(DriveLetter::D);
 ///
-/// share.connect()?;
+/// target.connect()?;
 /// // use std::fs as if D:\ was a local directory
 /// assert!(std::fs::metadata(r"D:\")?.is_dir());
-/// share.disconnect()?;
+/// target.disconnect()?;
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
-pub struct SmbShare {
+pub struct SmbTarget {
     remote: String,
     username: Option<String>,
     password: Option<String>,
@@ -77,9 +78,9 @@ pub struct SmbShare {
 }
 
 // Deliberately manual: must never leak the password.
-impl std::fmt::Debug for SmbShare {
+impl std::fmt::Debug for SmbTarget {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SmbShare")
+        f.debug_struct("SmbTarget")
             .field("remote", &self.remote)
             .field("username", &self.username)
             .field("password", &self.password.as_ref().map(|_| "<redacted>"))
@@ -91,16 +92,16 @@ impl std::fmt::Debug for SmbShare {
 }
 
 #[cfg(feature = "zeroize")]
-impl Drop for SmbShare {
+impl Drop for SmbTarget {
     fn drop(&mut self) {
         use zeroize::Zeroize;
         self.password.zeroize();
     }
 }
 
-impl SmbShare {
-    /// A deviceless connection to `remote` (e.g. `\\server\share`) using the
-    /// credentials of the currently logged-on user.
+impl SmbTarget {
+    /// An SMB target at `remote` (e.g. `\\server\share`), initially configured
+    /// for a deviceless connection using the logged-on user's credentials.
     pub fn new(remote: impl Into<String>) -> Self {
         Self {
             remote: remote.into(),
@@ -144,7 +145,7 @@ impl SmbShare {
         self
     }
 
-    /// Redirect the share to a local drive letter.
+    /// Redirect this target to a local drive letter.
     #[must_use]
     pub fn mount_on(mut self, letter: DriveLetter) -> Self {
         self.local = Some(letter.to_string());
@@ -232,13 +233,13 @@ impl SmbShare {
     /// `WNetUseConnectionW` with `CONNECT_REDIRECT`.
     ///
     /// Returns the name through which the share is accessible — the assigned
-    /// device (e.g. `"Z:"`), or the local device configured on this share if
+    /// device (e.g. `"Z:"`), or the local device configured on this target if
     /// one was set. Pass the returned name to
     /// [`cancel_connection`] to disconnect, or use
     /// [`connect_auto_guarded`](Self::connect_auto_guarded) to have that
     /// happen automatically.
     ///
-    /// The share's resource type must be [`ResourceType::Disk`] or
+    /// The target's resource type must be [`ResourceType::Disk`] or
     /// [`ResourceType::Print`]: Windows rejects `RESOURCETYPE_ANY` with
     /// [`Error::InvalidParameter`] when it chooses the device itself.
     ///
@@ -292,13 +293,13 @@ impl SmbShare {
     /// such handle: Windows does not reference-count connections, and
     /// canceling by remote name tears down **every** deviceless connection
     /// to the resource in this logon session, including ones the guard never
-    /// made — so deviceless shares are rejected here. Use
+    /// made — so deviceless targets are rejected here. Use
     /// [`connect_auto_guarded`](Self::connect_auto_guarded) to have Windows
     /// pick the device instead.
     ///
     /// # Errors
     /// [`Error::InvalidParameter`] (synthesized without a Windows call) when
-    /// this share has no local device; otherwise see [`Error`].
+    /// this target has no local device; otherwise see [`Error`].
     pub fn connect_guarded(&self, options: ConnectOptions) -> Result<Connection> {
         let Some(device) = self.local.as_deref() else {
             return Err(Error::InvalidParameter);
@@ -314,7 +315,7 @@ impl SmbShare {
     /// [`connect_auto`](Self::connect_auto) with an RAII [`Connection`]
     /// guard: Windows picks a free local device, and the guard cancels
     /// exactly that device when dropped. [`Connection::device`] tells you
-    /// where the share is mounted.
+    /// where the target is mounted.
     ///
     /// # Errors
     /// See [`connect_auto`](Self::connect_auto).
@@ -328,7 +329,7 @@ impl SmbShare {
 
     /// Disconnect with default options: non-forced, keeping any persistence.
     ///
-    /// Disconnects by local device name when this share has one, otherwise by
+    /// Disconnects by local device name when this target has one, otherwise by
     /// remote name. Disconnecting by remote name cancels **all** deviceless
     /// connections to that resource in this logon session — Windows does not
     /// reference-count them, so this undoes every [`connect`](Self::connect)
@@ -356,7 +357,7 @@ impl SmbShare {
 ///
 /// This is the direct wrapper around `WNetCancelConnection2W`; use it to
 /// disconnect names returned by
-/// [`SmbShare::connect_auto`] or found via [`crate::enumerate`].
+/// [`SmbTarget::connect_auto`] or found via [`crate::enumerate`].
 ///
 /// A local device name cancels only that redirection; a remote name cancels
 /// **all** deviceless connections to that resource in this logon session
@@ -375,8 +376,8 @@ pub fn cancel_connection(name: &str, options: DisconnectOptions) -> Result<()> {
     check_wnet(status)
 }
 
-/// RAII guard returned by [`SmbShare::connect_guarded`] and
-/// [`SmbShare::connect_auto_guarded`]: cancels the connection when dropped
+/// RAII guard returned by [`SmbTarget::connect_guarded`] and
+/// [`SmbTarget::connect_auto_guarded`]: cancels the connection when dropped
 /// (best effort — a failure on drop is only visible as a `tracing` event,
 /// with the `tracing` feature enabled).
 ///
@@ -391,7 +392,7 @@ pub fn cancel_connection(name: &str, options: DisconnectOptions) -> Result<()> {
 /// Use [`Connection::disconnect`] for explicit error handling, or
 /// [`Connection::leak`] to keep the connection open past the guard.
 #[derive(Debug)]
-#[must_use = "dropping the guard disconnects the share immediately"]
+#[must_use = "dropping the guard disconnects the connection immediately"]
 pub struct Connection {
     /// The redirected local device this guard exclusively owns.
     device: String,
@@ -399,7 +400,7 @@ pub struct Connection {
 }
 
 impl Connection {
-    /// The local device this guard owns (e.g. `"Z:"`) — the share is
+    /// The local device this guard owns (e.g. `"Z:"`) — the target is
     /// accessible through it for as long as the guard lives.
     #[must_use]
     pub fn device(&self) -> &str {
@@ -436,15 +437,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn configures_share_fluently() {
-        let share = SmbShare::new(r"\\server\share")
+    fn configures_target_fluently() {
+        let target = SmbTarget::new(r"\\server\share")
             .credentials("user", "pass")
             .mount_on(DriveLetter::D)
             .provider("provider");
-        assert_eq!(share.username.as_deref(), Some("user"));
-        assert_eq!(share.password.as_deref(), Some("pass"));
-        assert_eq!(share.local.as_deref(), Some("D:"));
-        assert_eq!(share.provider.as_deref(), Some("provider"));
+        assert_eq!(target.username.as_deref(), Some("user"));
+        assert_eq!(target.password.as_deref(), Some("pass"));
+        assert_eq!(target.local.as_deref(), Some("D:"));
+        assert_eq!(target.provider.as_deref(), Some("provider"));
     }
 
     #[test]
@@ -452,9 +453,9 @@ mod tests {
         // Rejected before any Windows call: without a local device there is
         // nothing a guard can exclusively own, and canceling by remote name
         // would tear down deviceless connections the guard never made.
-        let share = SmbShare::new(r"\\server\share");
+        let target = SmbTarget::new(r"\\server\share");
         assert_eq!(
-            share.connect_guarded(ConnectOptions::new()).unwrap_err(),
+            target.connect_guarded(ConnectOptions::new()).unwrap_err(),
             Error::InvalidParameter
         );
     }

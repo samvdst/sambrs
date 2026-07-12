@@ -22,7 +22,7 @@ migration table in the README.
 
 - Authenticate as the logged-on user by omitting credentials (0.1 always
   passed non-null credentials, making SSO unreachable).
-- Fluent `SmbShare` configuration with `credentials`, `username`, `password`,
+- Fluent `SmbTarget` configuration with `credentials`, `username`, `password`,
   `mount_on` (type-safe `DriveLetter`), `local_device`, `resource_type`
   (disk/printer), and `provider`.
 - `ConnectOptions` covering every documented `CONNECT_*` flag: `persist`,
@@ -30,13 +30,13 @@ migration table in the README.
   `current_media`, `save_credentials`, `reset_credentials`,
   `require_integrity` (SMB signing), `require_privacy` (SMB encryption), and
   `write_through`.
-- `SmbShare::connect_auto`: let Windows pick a free drive letter
+- `SmbTarget::connect_auto`: let Windows pick a free drive letter
   (`WNetUseConnectionW`), returning the assigned name.
-- `SmbShare::connect_guarded` / `connect_auto_guarded`: RAII `Connection`
+- `SmbTarget::connect_guarded` / `connect_auto_guarded`: RAII `Connection`
   guard that disconnects on drop, with `leak()` and explicit `disconnect()`.
   A guard always owns a redirected local device and cancels exactly that
   device, so dropping it can never tear down a connection it did not create.
-  Deviceless shares are rejected with `InvalidParameter` (Windows does not
+  Deviceless targets are rejected with `InvalidParameter` (Windows does not
   reference-count deviceless connections, so no guard can own one); see the
   `Connection` docs.
 - `cancel_connection`: disconnect any connection by device or remote name.

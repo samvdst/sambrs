@@ -89,8 +89,8 @@ pub enum Error {
     /// Also synthesized without a Windows call by
     /// [`server::delete_session`](crate::server::delete_session) when neither
     /// a client nor a user filter is given, and by
-    /// [`SmbShare::connect_guarded`](crate::SmbShare::connect_guarded) for a
-    /// share without a local device.
+    /// [`SmbTarget::connect_guarded`](crate::SmbTarget::connect_guarded) for a
+    /// target without a local device.
     #[error("a parameter is incorrect")]
     InvalidParameter,
     /// The specified password is invalid (and, for connects, the interactive
@@ -181,7 +181,7 @@ pub enum Error {
     /// for a retry that sambrs refuses to make: a buffer-size retry that
     /// never fits, an enumeration batch that delivers no entries (either
     /// retry would loop forever), or an access-name buffer in
-    /// [`connect_auto`](crate::SmbShare::connect_auto) reported as too small
+    /// [`connect_auto`](crate::SmbTarget::connect_auto) reported as too small
     /// even though it fits any real access name (that retry could establish
     /// a second connection).
     #[error("Windows error {code}: {msg}", code = .0, msg = os_message(*.0))]
@@ -301,7 +301,7 @@ impl Error {
     /// usually comes from a failed Windows API call, but sambrs synthesizes
     /// [`Error::InvalidParameter`] for some rejected inputs (see
     /// [`server::delete_session`](crate::server::delete_session) and
-    /// [`SmbShare::connect_guarded`](crate::SmbShare::connect_guarded)); it
+    /// [`SmbTarget::connect_guarded`](crate::SmbTarget::connect_guarded)); it
     /// still reports the matching `ERROR_INVALID_PARAMETER`. For
     /// [`Error::ExtendedError`] this is `ERROR_EXTENDED_ERROR` (1208); the
     /// provider-specific code is in the variant itself.

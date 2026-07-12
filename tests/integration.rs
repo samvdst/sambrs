@@ -2,7 +2,7 @@
 #![cfg(windows)]
 
 use sambrs::{
-    ConnectOptions, DisconnectOptions, DriveLetter, Error, SmbShare, cancel_connection, enumerate,
+    ConnectOptions, DisconnectOptions, DriveLetter, Error, SmbTarget, cancel_connection, enumerate,
     query, server,
 };
 
@@ -24,11 +24,11 @@ fn local_admin() -> bool {
     std::env::var("SAMBRS_TEST_LOCAL").is_ok_and(|v| v == "1")
 }
 
-fn share(mount: Option<DriveLetter>) -> SmbShare {
-    let share = SmbShare::new(share_name()).credentials(username(), password());
+fn target(mount: Option<DriveLetter>) -> SmbTarget {
+    let target = SmbTarget::new(share_name()).credentials(username(), password());
     match mount {
-        Some(letter) => share.mount_on(letter),
-        None => share,
+        Some(letter) => target.mount_on(letter),
+        None => target,
     }
 }
 
@@ -43,9 +43,9 @@ fn drive_exists(letter: DriveLetter) -> bool {
 #[test]
 #[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn wrong_password_fails_without_prompting() {
-    let share =
-        SmbShare::new(share_name()).credentials(username(), "definitely-the-wrong-password-1");
-    let result = share.connect();
+    let target =
+        SmbTarget::new(share_name()).credentials(username(), "definitely-the-wrong-password-1");
+    let result = target.connect();
     assert!(
         matches!(
             result,
@@ -58,9 +58,9 @@ fn wrong_password_fails_without_prompting() {
 #[test]
 #[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn nonexistent_share_fails() {
-    let share =
-        SmbShare::new(r"\\thisisnotashare.local\Share-Name").credentials(username(), password());
-    let result = share.connect();
+    let target =
+        SmbTarget::new(r"\\thisisnotashare.local\Share-Name").credentials(username(), password());
+    let result = target.connect();
     // The documented WNetAddConnection2W error list is not exhaustive
     // ("Other: use FormatMessage"): unresolvable hosts commonly surface as
     // ERROR_BAD_NETPATH (53) or ERROR_SEM_TIMEOUT (121), which have no
@@ -80,38 +80,38 @@ fn nonexistent_share_fails() {
 #[test]
 #[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn deviceless_connect_and_reconnect_works() {
-    let share = share(None);
-    share.connect().unwrap();
+    let target = target(None);
+    target.connect().unwrap();
     // Reconnecting a deviceless connection is fine.
-    share.connect().unwrap();
+    target.connect().unwrap();
     assert!(std::path::Path::new(&share_name()).is_dir());
-    share.disconnect().unwrap();
+    target.disconnect().unwrap();
 }
 
 #[test]
 #[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn mount_on_drive_letter_works_and_does_not_persist() {
-    let share = share(Some(DriveLetter::S));
-    share.connect().unwrap();
+    let target = target(Some(DriveLetter::S));
+    target.connect().unwrap();
     assert!(drive_exists(DriveLetter::S));
-    share.disconnect().unwrap();
+    target.disconnect().unwrap();
     assert!(!drive_exists(DriveLetter::S));
 }
 
 #[test]
 #[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn mounted_reconnect_fails_with_already_assigned() {
-    let share = share(Some(DriveLetter::S));
-    share.connect().unwrap();
-    assert_eq!(share.connect(), Err(Error::AlreadyAssigned));
-    share.disconnect().unwrap();
+    let target = target(Some(DriveLetter::S));
+    target.connect().unwrap();
+    assert_eq!(target.connect(), Err(Error::AlreadyAssigned));
+    target.disconnect().unwrap();
 }
 
 #[test]
 #[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn two_letters_to_the_same_share_work() {
-    let one = share(Some(DriveLetter::S));
-    let two = share(Some(DriveLetter::T));
+    let one = target(Some(DriveLetter::S));
+    let two = target(Some(DriveLetter::T));
     one.connect().unwrap();
     two.connect().unwrap();
     assert!(drive_exists(DriveLetter::S));
@@ -125,21 +125,21 @@ fn two_letters_to_the_same_share_work() {
 #[test]
 #[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn force_disconnect_with_open_file_works() {
-    let share = share(Some(DriveLetter::U));
-    share.connect().unwrap();
+    let target = target(Some(DriveLetter::U));
+    target.connect().unwrap();
     let file = std::fs::File::create(r"U:\sambrs-force-disconnect.txt").unwrap();
     // Non-forced disconnect must refuse while a file is open.
-    assert_eq!(share.disconnect(), Err(Error::OpenFiles));
-    share
+    assert_eq!(target.disconnect(), Err(Error::OpenFiles));
+    target
         .disconnect_with(DisconnectOptions::new().force(true))
         .unwrap();
     drop(file);
     assert!(!drive_exists(DriveLetter::U));
     // Clean up the file via a fresh connection.
-    let share = self::share(Some(DriveLetter::U));
-    share.connect().unwrap();
+    let target = self::target(Some(DriveLetter::U));
+    target.connect().unwrap();
     let _ = std::fs::remove_file(r"U:\sambrs-force-disconnect.txt");
-    share.disconnect().unwrap();
+    target.disconnect().unwrap();
 }
 
 // ── RAII guard ──────────────────────────────────────────────────────────────
@@ -147,9 +147,9 @@ fn force_disconnect_with_open_file_works() {
 #[test]
 #[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn guard_disconnects_on_drop() {
-    let share = share(Some(DriveLetter::V));
+    let target = target(Some(DriveLetter::V));
     {
-        let _guard = share.connect_guarded(ConnectOptions::new()).unwrap();
+        let _guard = target.connect_guarded(ConnectOptions::new()).unwrap();
         assert!(drive_exists(DriveLetter::V));
     }
     assert!(!drive_exists(DriveLetter::V));
@@ -158,10 +158,13 @@ fn guard_disconnects_on_drop() {
 #[test]
 #[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn guard_leak_keeps_the_connection() {
-    let share = share(Some(DriveLetter::V));
-    share.connect_guarded(ConnectOptions::new()).unwrap().leak();
+    let target = target(Some(DriveLetter::V));
+    target
+        .connect_guarded(ConnectOptions::new())
+        .unwrap()
+        .leak();
     assert!(drive_exists(DriveLetter::V));
-    share.disconnect().unwrap();
+    target.disconnect().unwrap();
 }
 
 // The ownership property behind the guard design: a guard cancels only the
@@ -170,9 +173,9 @@ fn guard_leak_keeps_the_connection() {
 #[test]
 #[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn guard_drop_leaves_other_connections_alone() {
-    let deviceless = share(None);
+    let deviceless = target(None);
     deviceless.connect().unwrap();
-    let mounted = share(Some(DriveLetter::V));
+    let mounted = target(Some(DriveLetter::V));
     {
         let _guard = mounted.connect_guarded(ConnectOptions::new()).unwrap();
         assert!(drive_exists(DriveLetter::V));
@@ -188,8 +191,8 @@ fn guard_drop_leaves_other_connections_alone() {
 #[test]
 #[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn connect_auto_assigns_a_device() {
-    let share = share(None);
-    let access_name = share.connect_auto(ConnectOptions::new()).unwrap();
+    let target = target(None);
+    let access_name = target.connect_auto(ConnectOptions::new()).unwrap();
     assert!(
         access_name.ends_with(':'),
         "expected a device name, got {access_name:?}"
@@ -201,10 +204,10 @@ fn connect_auto_assigns_a_device() {
 #[test]
 #[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn connect_auto_guarded_owns_the_assigned_device() {
-    let share = share(None);
+    let target = target(None);
     let device;
     {
-        let guard = share.connect_auto_guarded(ConnectOptions::new()).unwrap();
+        let guard = target.connect_auto_guarded(ConnectOptions::new()).unwrap();
         device = guard.device().to_string();
         assert!(
             device.ends_with(':'),
@@ -220,32 +223,32 @@ fn connect_auto_guarded_owns_the_assigned_device() {
 #[test]
 #[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn get_connection_returns_the_remote_name() {
-    let share = share(Some(DriveLetter::W));
-    share.connect().unwrap();
+    let target = target(Some(DriveLetter::W));
+    target.connect().unwrap();
     let remote = query::get_connection("W:").unwrap();
     assert!(
         remote.eq_ignore_ascii_case(&share_name()),
         "{remote} != {}",
         share_name()
     );
-    share.disconnect().unwrap();
+    target.disconnect().unwrap();
 }
 
 #[test]
 #[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn get_user_returns_a_user() {
-    let share = share(Some(DriveLetter::W));
-    share.connect().unwrap();
+    let target = target(Some(DriveLetter::W));
+    target.connect().unwrap();
     let user = query::get_user(Some("W:")).unwrap();
     assert!(!user.is_empty());
-    share.disconnect().unwrap();
+    target.disconnect().unwrap();
 }
 
 #[test]
 #[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn get_universal_name_resolves_a_mounted_path() {
-    let share = share(Some(DriveLetter::W));
-    share.connect().unwrap();
+    let target = target(Some(DriveLetter::W));
+    target.connect().unwrap();
     let unc = query::get_universal_name(r"W:\").unwrap();
     assert!(
         unc.to_ascii_lowercase()
@@ -253,7 +256,7 @@ fn get_universal_name_resolves_a_mounted_path() {
         "{unc} does not start with {}",
         share_name()
     );
-    share.disconnect().unwrap();
+    target.disconnect().unwrap();
 }
 
 // ── enumerate ───────────────────────────────────────────────────────────────
@@ -261,8 +264,8 @@ fn get_universal_name_resolves_a_mounted_path() {
 #[test]
 #[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn enumerate_connections_contains_the_share() {
-    let share = share(Some(DriveLetter::X));
-    share.connect().unwrap();
+    let target = target(Some(DriveLetter::X));
+    target.connect().unwrap();
     let found = enumerate::connections()
         .unwrap()
         .filter_map(Result::ok)
@@ -270,7 +273,7 @@ fn enumerate_connections_contains_the_share() {
             r.remote_name
                 .is_some_and(|n| n.eq_ignore_ascii_case(&share_name()))
         });
-    share.disconnect().unwrap();
+    target.disconnect().unwrap();
     assert!(found, "active connection to the test share not enumerated");
 }
 
@@ -282,13 +285,13 @@ fn enumerate_server_shares_contains_the_share() {
     let server = full.trim_start_matches('\\').split('\\').next().unwrap();
     let server_root = format!(r"\\{server}");
     // Authenticate first: servers may refuse anonymous enumeration.
-    let share = share(None);
-    share.connect().unwrap();
+    let target = target(None);
+    target.connect().unwrap();
     let found = enumerate::server_shares(&server_root)
         .unwrap()
         .filter_map(Result::ok)
         .any(|r| r.remote_name.is_some_and(|n| n.eq_ignore_ascii_case(&full)));
-    share.disconnect().unwrap();
+    target.disconnect().unwrap();
     assert!(found, "test share not found in {server_root}'s share list");
 }
 
@@ -347,8 +350,8 @@ fn server_sessions_and_connections_are_listable() {
         return;
     }
     let leaf = share_name().rsplit('\\').next().unwrap().to_string();
-    let share = share(None);
-    share.connect().unwrap();
+    let target = target(None);
+    target.connect().unwrap();
 
     // Establishing the connection above means at least one session and one
     // connection must be visible.
@@ -358,7 +361,7 @@ fn server_sessions_and_connections_are_listable() {
     let connections = server::connections(None, &leaf).unwrap();
     assert!(!connections.is_empty(), "no connections to {leaf} listed");
 
-    share.disconnect().unwrap();
+    target.disconnect().unwrap();
 }
 
 #[test]
@@ -368,8 +371,8 @@ fn server_open_files_are_listable_and_closable() {
         eprintln!("skipped: SAMBRS_TEST_LOCAL != 1");
         return;
     }
-    let share = share(Some(DriveLetter::Y));
-    share.connect().unwrap();
+    let target = target(Some(DriveLetter::Y));
+    target.connect().unwrap();
     let path = r"Y:\sambrs-open-file.txt";
     let file = std::fs::File::create(path).unwrap();
 
@@ -382,7 +385,7 @@ fn server_open_files_are_listable_and_closable() {
 
     drop(file);
     let _ = std::fs::remove_file(path);
-    share
+    target
         .disconnect_with(DisconnectOptions::new().force(true))
         .unwrap();
 }

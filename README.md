@@ -37,18 +37,18 @@ sambrs = "0.2"
 
 ## Usage
 
-Instantiate an `SmbShare` and establish a connection. Once connected (mounted
+Configure an `SmbTarget` and establish a connection. Once connected (mounted
 or deviceless), `std::fs` works on it like on any local path:
 
 ```no_run
-use sambrs::{ConnectOptions, DriveLetter, SmbShare};
+use sambrs::{ConnectOptions, DriveLetter, SmbTarget};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let share = SmbShare::new(r"\\server.local\share")
+    let target = SmbTarget::new(r"\\server.local\share")
         .credentials(r"LOGONDOMAIN\user", "pass")
         .mount_on(DriveLetter::D);
 
-    share.connect_with(
+    target.connect_with(
         ConnectOptions::new()
             .persist(true)          // restore the mapping at logon
             .require_privacy(true), // enforce SMB encryption
@@ -57,7 +57,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // use std::fs as if D:\ was a local directory
     println!("{}", std::fs::metadata(r"D:\")?.is_dir());
 
-    share.disconnect()?;
+    target.disconnect()?;
     Ok(())
 }
 ```
@@ -66,8 +66,8 @@ Without credentials, the connection authenticates as the logged-on user:
 
 ```no_run
 # fn main() -> Result<(), sambrs::Error> {
-let share = sambrs::SmbShare::new(r"\\server.local\share");
-share.connect()?;
+let target = sambrs::SmbTarget::new(r"\\server.local\share");
+target.connect()?;
 # Ok(())
 # }
 ```
@@ -130,9 +130,9 @@ when running from a packaged copy of the crate.
 
 | 0.1 | 0.2 |
 | --- | --- |
-| `SmbShare::new(share, user, pass, Some('d'))` | `SmbShare::new(share).credentials(user, pass).mount_on(DriveLetter::D)` |
-| `share.connect(persist, interactive)` | `share.connect_with(ConnectOptions::new().persist(persist).interactive(interactive))` |
-| `share.disconnect(persist, force)` | `share.disconnect_with(DisconnectOptions::new().forget(persist).force(force))` — note the rename: the old `persist: true` *removed* the persistence |
+| `SmbShare::new(share, user, pass, Some('d'))` | `SmbTarget::new(share).credentials(user, pass).mount_on(DriveLetter::D)` |
+| `share.connect(persist, interactive)` | `target.connect_with(ConnectOptions::new().persist(persist).interactive(interactive))` |
+| `share.disconnect(persist, force)` | `target.disconnect_with(DisconnectOptions::new().forget(persist).force(force))` — note the rename: the old `persist: true` *removed* the persistence |
 | `Error::CStringConversion` | `Error::InteriorNul` |
 
 Under the hood, 0.1 used the ANSI (`A`) API variants, which silently mangled

@@ -4,8 +4,8 @@
 
 mod error;
 mod options;
-mod share;
 mod strings;
+mod target;
 mod trace;
 
 pub mod enumerate;
@@ -14,4 +14,4 @@ pub mod server;
 
 pub use error::{Error, Result};
 pub use options::{ConnectOptions, DisconnectOptions, DriveLetter, ResourceType};
-pub use share::{Connection, SmbShare, cancel_connection};
+pub use target::{Connection, SmbTarget, cancel_connection};
