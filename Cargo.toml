@@ -7,7 +7,6 @@ readme = "README.md"
 edition = "2024"
 rust-version = "1.85"
 repository = "https://github.com/samvdst/sambrs"
-documentation = "https://docs.rs/sambrs"
 categories = ["os::windows-apis", "filesystem", "api-bindings"]
 keywords = ["windows", "smb", "share", "network"]
 description = """
