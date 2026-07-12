@@ -95,7 +95,7 @@ pub enum ResourceType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[must_use]
 pub struct ConnectOptions {
-    flags: u32,
+    pub(crate) flags: u32,
 }
 
 impl Default for ConnectOptions {
@@ -215,10 +215,6 @@ impl ConnectOptions {
     pub fn write_through(self, yes: bool) -> Self {
         self.flag(WNet::CONNECT_WRITE_THROUGH_SEMANTICS, yes)
     }
-
-    pub(crate) fn to_flags(self) -> u32 {
-        self.flags
-    }
 }
 
 /// Options for [`SmbTarget::disconnect_with`](crate::SmbTarget::disconnect_with)
@@ -226,8 +222,8 @@ impl ConnectOptions {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[must_use]
 pub struct DisconnectOptions {
-    force: bool,
-    forget: bool,
+    pub(crate) force: bool,
+    pub(crate) forget: bool,
 }
 
 impl DisconnectOptions {
@@ -253,18 +249,6 @@ impl DisconnectOptions {
     pub fn forget(mut self, yes: bool) -> Self {
         self.forget = yes;
         self
-    }
-
-    pub(crate) fn flags(self) -> u32 {
-        if self.forget {
-            WNet::CONNECT_UPDATE_PROFILE
-        } else {
-            0
-        }
-    }
-
-    pub(crate) fn force_bool(self) -> i32 {
-        i32::from(self.force)
     }
 }
 
@@ -294,19 +278,19 @@ mod tests {
 
     #[test]
     fn default_options_are_temporary() {
-        assert_eq!(ConnectOptions::new().to_flags(), WNet::CONNECT_TEMPORARY);
+        assert_eq!(ConnectOptions::new().flags, WNet::CONNECT_TEMPORARY);
         assert_eq!(
             ConnectOptions::new()
                 .interactive(true)
                 .interactive(false)
-                .to_flags(),
+                .flags,
             WNet::CONNECT_TEMPORARY
         );
     }
 
     #[test]
     fn persist_replaces_temporary() {
-        let flags = ConnectOptions::new().persist(true).to_flags();
+        let flags = ConnectOptions::new().persist(true).flags;
         assert_eq!(flags, WNet::CONNECT_UPDATE_PROFILE);
     }
 
@@ -324,7 +308,7 @@ mod tests {
             .require_integrity(true)
             .require_privacy(true)
             .write_through(true)
-            .to_flags();
+            .flags;
         assert_eq!(
             flags,
             WNet::CONNECT_TEMPORARY
@@ -344,12 +328,9 @@ mod tests {
 
     #[test]
     fn disconnect_options_map() {
-        assert_eq!(DisconnectOptions::new().flags(), 0);
-        assert_eq!(DisconnectOptions::new().force_bool(), 0);
-        assert_eq!(
-            DisconnectOptions::new().forget(true).flags(),
-            WNet::CONNECT_UPDATE_PROFILE
-        );
-        assert_eq!(DisconnectOptions::new().force(true).force_bool(), 1);
+        assert!(!DisconnectOptions::new().forget);
+        assert!(!DisconnectOptions::new().force);
+        assert!(DisconnectOptions::new().forget(true).forget);
+        assert!(DisconnectOptions::new().force(true).force);
     }
 }

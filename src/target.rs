@@ -208,7 +208,7 @@ impl SmbTarget {
     /// See [`Error`] — every documented `WNetAddConnection2W` failure has a
     /// dedicated variant.
     pub fn connect_with(&self, options: ConnectOptions) -> Result<()> {
-        let flags = options.to_flags();
+        let flags = options.flags;
         let args = ConnectArgs::new(self)?;
         let resource = args.resource();
 
@@ -247,7 +247,7 @@ impl SmbTarget {
     /// # Errors
     /// See [`Error`].
     pub fn connect_auto(&self, options: ConnectOptions) -> Result<String> {
-        let flags = options.to_flags() | WNet::CONNECT_REDIRECT;
+        let flags = options.flags | WNet::CONNECT_REDIRECT;
         let args = ConnectArgs::new(self)?;
         let resource = args.resource();
 
@@ -370,9 +370,13 @@ pub fn cancel_connection(name: &str, options: DisconnectOptions) -> Result<()> {
     let wide = to_wide(name)?;
     trace!("disconnecting {name}");
     // SAFETY: `wide` is a valid nul-terminated string outliving the call.
-    let status = unsafe {
-        WNet::WNetCancelConnection2W(wide.as_ptr(), options.flags(), options.force_bool())
+    let flags = if options.forget {
+        WNet::CONNECT_UPDATE_PROFILE
+    } else {
+        0
     };
+    let status =
+        unsafe { WNet::WNetCancelConnection2W(wide.as_ptr(), flags, i32::from(options.force)) };
     debug!("WNetCancelConnection2W returned {status}");
     check_wnet(status)
 }
