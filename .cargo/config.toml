@@ -1,4 +1,0 @@
-# The integration tests mount real drive letters and enumerate live
-# connections; running them concurrently would race on that global state.
-[env]
-RUST_TEST_THREADS = "1"

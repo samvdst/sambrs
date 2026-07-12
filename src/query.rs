@@ -4,7 +4,7 @@
 
 use crate::error::{Error, Result, wnet_extended_error};
 use crate::strings::{from_pwstr, len_u32, opt_ptr, to_wide};
-use crate::trace::{debug, trace};
+use tracing::{debug, trace};
 use windows_sys::Win32::Foundation::{ERROR_EXTENDED_ERROR, ERROR_MORE_DATA, NO_ERROR};
 use windows_sys::Win32::NetworkManagement::WNet;
 

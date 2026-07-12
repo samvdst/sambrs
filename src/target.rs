@@ -1,7 +1,7 @@
 use crate::error::{Error, Result, check_wnet};
 use crate::options::{ConnectOptions, DisconnectOptions, DriveLetter};
 use crate::strings::{WideSecret, from_wide_buf, len_u32, opt_ptr, secret_ptr, to_wide};
-use crate::trace::{debug, trace};
+use tracing::{debug, trace};
 use windows_sys::Win32::NetworkManagement::WNet;
 
 /// The wide-string buffers for one connect call, converted from an

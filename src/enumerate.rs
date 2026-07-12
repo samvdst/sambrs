@@ -12,8 +12,8 @@
 
 use crate::error::{Error, Result, wnet_extended_error};
 use crate::strings::{from_pwstr, len_u32, to_wide};
-use crate::trace::{debug, trace};
 use std::collections::VecDeque;
+use tracing::{debug, trace};
 use windows_sys::Win32::Foundation::{
     ERROR_EXTENDED_ERROR, ERROR_MORE_DATA, ERROR_NO_MORE_ITEMS, HANDLE, NO_ERROR,
 };
@@ -29,25 +29,6 @@ pub struct NetResource {
     pub remote_name: Option<String>,
     pub comment: Option<String>,
     pub provider: Option<String>,
-}
-
-impl NetResource {
-    /// # Safety
-    /// The string pointers in `raw` must each be null or point to a valid
-    /// nul-terminated UTF-16 string — as they are in a `NETRESOURCEW`
-    /// returned by `WNetEnumResourceW` while the enumeration buffer is
-    /// alive.
-    unsafe fn from_raw(raw: &WNet::NETRESOURCEW) -> Self {
-        // SAFETY: guaranteed by caller.
-        unsafe {
-            Self {
-                local_name: from_pwstr(raw.lpLocalName),
-                remote_name: from_pwstr(raw.lpRemoteName),
-                comment: from_pwstr(raw.lpComment),
-                provider: from_pwstr(raw.lpProvider),
-            }
-        }
-    }
 }
 
 /// Iterator over enumerated [`NetResource`] entries. Closes the enumeration
@@ -114,16 +95,21 @@ impl Resources {
                     }
                     // SAFETY: on success the buffer starts with `count`
                     // NETRESOURCEW entries; the strings they point to live in
-                    // `self.buf` and are copied out immediately by
-                    // `from_raw`, before the buffer is reused.
+                    // `self.buf` and are copied before the buffer is reused.
                     let entries = unsafe {
                         std::slice::from_raw_parts(
                             self.buf.as_ptr().cast::<WNet::NETRESOURCEW>(),
                             count as usize,
                         )
                     };
-                    self.batch
-                        .extend(entries.iter().map(|e| unsafe { NetResource::from_raw(e) }));
+                    self.batch.extend(entries.iter().map(|raw| unsafe {
+                        NetResource {
+                            local_name: from_pwstr(raw.lpLocalName),
+                            remote_name: from_pwstr(raw.lpRemoteName),
+                            comment: from_pwstr(raw.lpComment),
+                            provider: from_pwstr(raw.lpProvider),
+                        }
+                    }));
                     return Ok(());
                 }
                 ERROR_NO_MORE_ITEMS => {
@@ -151,12 +137,7 @@ impl Drop for Resources {
     }
 }
 
-fn open(
-    scope: u32,
-    resource_type: u32,
-    usage: u32,
-    root_remote: Option<&str>,
-) -> Result<Resources> {
+fn open(scope: u32, root_remote: Option<&str>) -> Result<Resources> {
     let remote = root_remote.map(to_wide).transpose()?;
     let root = remote.as_ref().map(|remote| WNet::NETRESOURCEW {
         dwScope: 0,
@@ -174,8 +155,8 @@ fn open(
     let status = unsafe {
         WNet::WNetOpenEnumW(
             scope,
-            resource_type,
-            usage,
+            WNet::RESOURCETYPE_DISK,
+            0,
             root.as_ref().map_or(std::ptr::null(), std::ptr::from_ref),
             &raw mut handle,
         )
@@ -200,7 +181,7 @@ fn open(
 /// See [`Error`].
 pub fn connections() -> Result<Resources> {
     trace!("enumerating active disk-share connections");
-    open(WNet::RESOURCE_CONNECTED, WNet::RESOURCETYPE_DISK, 0, None)
+    open(WNet::RESOURCE_CONNECTED, None)
 }
 
 /// Remembered (persistent) connections (`RESOURCE_REMEMBERED`) — restored at
@@ -210,7 +191,7 @@ pub fn connections() -> Result<Resources> {
 /// See [`Error`].
 pub fn remembered() -> Result<Resources> {
     trace!("enumerating remembered disk-share mappings");
-    open(WNet::RESOURCE_REMEMBERED, WNet::RESOURCETYPE_DISK, 0, None)
+    open(WNet::RESOURCE_REMEMBERED, None)
 }
 
 /// The disk shares a server exposes (`RESOURCE_GLOBALNET` rooted at `server`,
@@ -224,10 +205,5 @@ pub fn remembered() -> Result<Resources> {
 /// be found, or `ERROR_ACCESS_DENIED` when it refuses anonymous enumeration.
 pub fn server_shares(server: &str) -> Result<Resources> {
     trace!("enumerating disk shares on {server}");
-    open(
-        WNet::RESOURCE_GLOBALNET,
-        WNet::RESOURCETYPE_DISK,
-        0,
-        Some(server),
-    )
+    open(WNet::RESOURCE_GLOBALNET, Some(server))
 }

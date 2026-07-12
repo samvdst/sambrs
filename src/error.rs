@@ -92,7 +92,7 @@ pub(crate) fn wnet_extended_error() -> Error {
             crate::strings::len_u32(provider.len()),
         )
     };
-    crate::trace::debug!("WNetGetLastErrorW returned {status} (provider status {code})");
+    tracing::debug!("WNetGetLastErrorW returned {status} (provider status {code})");
     if status == NO_ERROR {
         Error::ExtendedError {
             code,

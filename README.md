@@ -115,12 +115,10 @@ SAMBRS_TEST_SHARE=\\server\share
 SAMBRS_TEST_USERNAME=DOMAIN\user
 SAMBRS_TEST_PASSWORD=...
 
-cargo test -- --include-ignored
+cargo test -- --include-ignored --test-threads=1
 ```
 
-The tests mount real drive letters and must run single-threaded. A git
-checkout sets `RUST_TEST_THREADS=1` through `.cargo/config.toml`; set it
-manually when running from a packaged copy.
+The tests mount real drive letters and must run single-threaded.
 
 ## Migrating from 0.1
 

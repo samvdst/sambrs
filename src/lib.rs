@@ -6,7 +6,6 @@ mod error;
 mod options;
 mod strings;
 mod target;
-mod trace;
 
 pub mod enumerate;
 pub mod query;
