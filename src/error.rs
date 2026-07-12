@@ -108,10 +108,6 @@ fn netmsg_message(code: u32) -> Option<String> {
 }
 
 impl Error {
-    pub(crate) fn from_status(code: u32) -> Self {
-        Self::Windows(code)
-    }
-
     /// The underlying Windows status code, if this error has one.
     #[must_use]
     pub fn raw_os_error(&self) -> Option<u32> {
@@ -142,7 +138,7 @@ pub(crate) fn check_wnet(status: u32) -> Result<()> {
     match status {
         NO_ERROR => Ok(()),
         ERROR_EXTENDED_ERROR => Err(wnet_extended_error()),
-        code => Err(Error::from_status(code)),
+        code => Err(Error::Windows(code)),
     }
 }
 
@@ -151,7 +147,7 @@ pub(crate) fn check_net(status: u32) -> Result<()> {
     if status == NERR_SUCCESS {
         Ok(())
     } else {
-        Err(Error::from_status(status))
+        Err(Error::Windows(status))
     }
 }
 

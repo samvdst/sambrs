@@ -161,7 +161,7 @@ impl Resources {
                     self.buf = vec![0u64; (size as usize).div_ceil(size_of::<u64>())];
                 }
                 ERROR_EXTENDED_ERROR => return Err(wnet_extended_error()),
-                code => return Err(Error::from_status(code)),
+                code => return Err(Error::Windows(code)),
             }
         }
         Err(Error::Windows(ERROR_MORE_DATA))
@@ -214,7 +214,7 @@ fn open(
             finished: false,
         }),
         ERROR_EXTENDED_ERROR => Err(wnet_extended_error()),
-        code => Err(Error::from_status(code)),
+        code => Err(Error::Windows(code)),
     }
 }
 

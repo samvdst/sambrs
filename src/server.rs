@@ -98,7 +98,7 @@ fn net_enum<T, U>(
                 // ERROR_MORE_DATA: loop again, the resume handle captured by
                 // `call` continues where this batch ended.
             }
-            code => return Err(Error::from_status(code)),
+            code => return Err(Error::Windows(code)),
         }
     }
     Err(Error::Windows(ERROR_MORE_DATA))

@@ -18,7 +18,7 @@ fn wide_out(mut call: impl FnMut(*mut u16, *mut u32) -> u32) -> Result<String> {
             // `len` now holds the required size in characters.
             ERROR_MORE_DATA => buf = vec![0u16; len as usize + 1],
             ERROR_EXTENDED_ERROR => return Err(wnet_extended_error()),
-            code => return Err(Error::from_status(code)),
+            code => return Err(Error::Windows(code)),
         }
     }
     Err(Error::Windows(ERROR_MORE_DATA))
@@ -92,7 +92,7 @@ pub fn get_universal_name(local_path: &str) -> Result<String> {
             // `size` now holds the required size in bytes.
             ERROR_MORE_DATA => buf = vec![0u64; (size as usize).div_ceil(size_of::<u64>())],
             ERROR_EXTENDED_ERROR => return Err(wnet_extended_error()),
-            code => return Err(Error::from_status(code)),
+            code => return Err(Error::Windows(code)),
         }
     }
     Err(Error::Windows(ERROR_MORE_DATA))
