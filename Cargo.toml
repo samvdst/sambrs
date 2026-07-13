@@ -1,22 +1,30 @@
 [package]
 name = "sambrs"
-version = "0.1.2"
+version = "0.2.0"
 authors = ["Samuel Van der Stappen <shogun_einst.0i@icloud.com>"]
 license = "MIT"
 readme = "README.md"
 edition = "2024"
+rust-version = "1.85"
 repository = "https://github.com/samvdst/sambrs"
-documentation = "https://docs.rs/sambrs"
-categories = ["os::windows-apis", "filesystem"]
+categories = ["os::windows-apis", "filesystem", "api-bindings"]
 keywords = ["windows", "smb", "share", "network"]
 description = """
-A tiny ergonomic wrapper around WNetAddConnection2A to connect to SMB shares on Windows.
+Safe, opinionated Windows SMB client operations: connect, disconnect, persist, query, and enumerate existing network shares.
 """
+# Allowlist: ship only the crate itself, not repo/CI/agent tooling.
+include = ["/src", "/tests", "/README.md", "/CHANGELOG.md", "/LICENSE"]
 
-[dependencies]
-thiserror = "1"
-tracing = "0.1"
-windows-sys = { version = "0.52", features = [
-  "Win32_NetworkManagement_WNet",
+[target.'cfg(windows)'.dependencies]
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+zeroize = "1"
+
+[target.'cfg(windows)'.dependencies.windows-sys]
+version = "0.60"
+features = [
   "Win32_Foundation",
-] }
+  "Win32_NetworkManagement_WNet",
+]
+
+[package.metadata.docs.rs]
+default-target = "x86_64-pc-windows-msvc"

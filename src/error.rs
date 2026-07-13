@@ -1,84 +1,109 @@
-use std::ffi::NulError;
-use thiserror::Error;
+use windows_sys::Win32::Foundation::{ERROR_EXTENDED_ERROR, NO_ERROR};
+use windows_sys::Win32::NetworkManagement::WNet;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-#[allow(clippy::enum_variant_names)]
-#[derive(Error, Debug, PartialEq)]
+/// Errors returned by sambrs operations.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
-    #[error("Failed to convert share to CString")]
-    CStringConversion(#[from] NulError),
+    /// Input contains an interior NUL and cannot cross the Windows API boundary.
+    InteriorNul,
+    /// The character is not an ASCII drive letter.
+    InvalidDriveLetter(char),
+    /// Persistence was requested without a local drive mapping.
+    PersistenceRequiresDrive,
+    /// A guarded connection was requested without a local drive mapping.
+    GuardRequiresDrive,
+    /// A guarded connection was configured to persist beyond the guard's lifetime.
+    PersistentGuard,
+    /// Forgetting was requested for a connection without a local drive mapping.
+    ForgetRequiresDrive,
+    /// A Windows status code.
+    Windows(u32),
+    /// A provider-specific error resolved through `WNetGetLastErrorW`.
+    ExtendedError {
+        code: u32,
+        description: String,
+        provider: String,
+    },
+}
 
-    #[error("The caller does not have access to the network resource.")]
-    AccessDenied,
-    #[error(
-        "The local device specified by the lpLocalName member is already connected to a network resource."
-    )]
-    AlreadyAssigned,
-    #[error("The type of local device and the type of network resource do not match.")]
-    BadDevType,
-    #[error(
-        "The specified device name is not valid. This error is returned if the lpLocalName member of the NETRESOURCE structure pointed to by the lpNetResource parameter specifies a device that is not redirectable."
-    )]
-    BadDevice,
-    #[error(
-        "The network name cannot be found. This value is returned if the lpRemoteName member of the NETRESOURCE structure pointed to by the lpNetResource parameter specifies a resource that is not acceptable to any network resource provider, either because the resource name is empty, not valid, or because the named resource cannot be located."
-    )]
-    BadNetName,
-    #[error("The user profile is in an incorrect format.")]
-    BadProfile,
-    #[error(
-        "The specified network provider name is not valid. This error is returned if the lpProvider member of the NETRESOURCE structure pointed to by the lpNetResource parameter specifies a value that does not match any network provider."
-    )]
-    BadProvider,
-    #[error("The specified user name is not valid.")]
-    BadUsername,
-    #[error("The router or provider is busy, possibly initializing. The caller should retry.")]
-    Busy,
-    #[error(
-        "The attempt to make the connection was canceled by the user through a dialog box from one of the network resource providers, or by a called resource."
-    )]
-    Cancelled,
-    #[error("The system is unable to open the user profile to process persistent connections.")]
-    CannotOpenProfile,
-    #[error(
-        "The local device name has a remembered connection to another network resource. This error is returned if an entry for the device specified by lpLocalName member of the NETRESOURCE structure pointed to by the lpNetResource parameter specifies a value that is already in the user profile for a different connection than that specified in the lpNetResource parameter."
-    )]
-    DeviceAlreadyRemembered,
-    #[error(
-        "A network-specific error occurred. Call the WNetGetLastError function to obtain a description of the error."
-    )]
-    ExtendedError,
-    #[error(
-        "An attempt was made to access an invalid address. This error is returned if the dwFlags parameter specifies a value of CONNECT_REDIRECT, but the lpLocalName member of the NETRESOURCE structure pointed to by the lpNetResource parameter was unspecified."
-    )]
-    InvalidAddress,
-    #[error(
-        "A parameter is incorrect. This error is returned if the dwType member of the NETRESOURCE structure pointed to by the lpNetResource parameter specifies a value other than RESOURCETYPE_DISK, RESOURCETYPE_PRINT, or RESOURCETYPE_ANY. This error is also returned if the dwFlags parameter specifies an incorrect or unknown value."
-    )]
-    InvalidParameter,
-    #[error("The specified password is invalid and the CONNECT_INTERACTIVE flag is not set.")]
-    InvalidPassword,
-    #[error("A logon failure because of an unknown user name or a bad password.")]
-    LogonFailure,
-    #[error(
-        "No network provider accepted the given network path. This error is returned if no network provider recognized the lpRemoteName member of the NETRESOURCE structure pointed to by the lpNetResource parameter."
-    )]
-    NoNetOrBadPath,
-    #[error("The network is unavailable.")]
-    NoNetwork,
-    #[error(
-        "Multiple connections to a server or shared resource by the same user, using more than one user name, are not allowed. Disconnect all previous connections to the server or shared resource and try again."
-    )]
-    SessionCredentialConflict,
-    #[error("The device is in use by an active process and cannot be disconnected.")]
-    DeviceInUse,
-    #[error(
-        "The name specified by the lpName parameter is not a redirected device, or the system is not currently connected to the device specified by the parameter."
-    )]
-    NotConnected,
-    #[error("There are open files, and the fForce parameter is FALSE.")]
-    OpenFiles,
-    #[error("Unknown error {0}.")]
-    Other(u32),
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InteriorNul => f.write_str(
+                "input string contains an interior NUL, which cannot be passed to the Windows API",
+            ),
+            Self::InvalidDriveLetter(c) => {
+                write!(f, "'{c}' is not a valid drive letter (expected A-Z)")
+            }
+            Self::PersistenceRequiresDrive => {
+                f.write_str("persistent SMB connections require a drive mapping")
+            }
+            Self::GuardRequiresDrive => {
+                f.write_str("a guarded SMB connection requires a drive mapping")
+            }
+            Self::PersistentGuard => f.write_str("a guarded SMB connection cannot be persistent"),
+            Self::ForgetRequiresDrive => f.write_str("only a drive mapping can be forgotten"),
+            Self::Windows(code) => write!(f, "Windows error {code}: {}", os_message(*code)),
+            Self::ExtendedError {
+                code,
+                description,
+                provider,
+            } => write!(
+                f,
+                "a network-specific error occurred (code {code}): {description} [provider: {provider}]"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for Error {}
+
+fn os_message(code: u32) -> String {
+    #[allow(clippy::cast_possible_wrap)]
+    std::io::Error::from_raw_os_error(code as i32).to_string()
+}
+
+/// Turn a `WNet` status code into a `Result`, resolving `ERROR_EXTENDED_ERROR`
+/// into the provider-specific error details.
+pub(crate) fn check_wnet(status: u32) -> Result<()> {
+    match status {
+        NO_ERROR => Ok(()),
+        ERROR_EXTENDED_ERROR => Err(wnet_extended_error()),
+        code => Err(Error::Windows(code)),
+    }
+}
+
+/// Fetch the provider-specific error behind `ERROR_EXTENDED_ERROR` via
+/// `WNetGetLastErrorW`. Must be called on the same thread that received the
+/// failing status, before any other `WNet` call.
+pub(crate) fn wnet_extended_error() -> Error {
+    let mut code = 0u32;
+    let mut description = [0u16; 512];
+    let mut provider = [0u16; 256];
+    let status = unsafe {
+        WNet::WNetGetLastErrorW(
+            &raw mut code,
+            description.as_mut_ptr(),
+            crate::strings::len_u32(description.len()),
+            provider.as_mut_ptr(),
+            crate::strings::len_u32(provider.len()),
+        )
+    };
+    tracing::debug!("WNetGetLastErrorW returned {status} (provider status {code})");
+    if status == NO_ERROR {
+        Error::ExtendedError {
+            code,
+            description: crate::strings::from_wide_buf(&description),
+            provider: crate::strings::from_wide_buf(&provider),
+        }
+    } else {
+        Error::ExtendedError {
+            code: 0,
+            description: String::from("<provider error details unavailable>"),
+            provider: String::new(),
+        }
+    }
 }
