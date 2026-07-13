@@ -16,7 +16,7 @@ Safe, opinionated Windows SMB client operations: connect, disconnect, persist, q
 include = ["/src", "/tests", "/README.md", "/CHANGELOG.md", "/LICENSE"]
 
 [target.'cfg(windows)'.dependencies]
-tracing = { version = "0.1", default-features = false, features = ["std"] }
+tracing = { version = "0.1", default-features = false }
 zeroize = "1"
 
 [target.'cfg(windows)'.dependencies.windows-sys]
