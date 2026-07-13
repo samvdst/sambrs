@@ -22,7 +22,7 @@ impl ConnectArgs {
         let password = target
             .password
             .as_deref()
-            .map(to_wide)
+            .map(|password| to_wide(password))
             .transpose()?
             .map(WideSecret::from);
         Ok(Self {
@@ -71,7 +71,7 @@ impl ConnectArgs {
 pub struct SmbTarget {
     remote: String,
     username: Option<String>,
-    password: Option<String>,
+    password: Option<zeroize::Zeroizing<String>>,
     local: Option<String>,
 }
 
@@ -84,13 +84,6 @@ impl std::fmt::Debug for SmbTarget {
             .field("password", &self.password.as_ref().map(|_| "<redacted>"))
             .field("local", &self.local)
             .finish()
-    }
-}
-
-impl Drop for SmbTarget {
-    fn drop(&mut self) {
-        use zeroize::Zeroize;
-        self.password.zeroize();
     }
 }
 
@@ -128,10 +121,7 @@ impl SmbTarget {
     /// Set only the password; Windows will use the default user name.
     #[must_use]
     pub fn password(mut self, password: impl Into<String>) -> Self {
-        // Wipe any previously set password before the assignment drops it.
-        use zeroize::Zeroize;
-        self.password.zeroize();
-        self.password = Some(password.into());
+        self.password = Some(zeroize::Zeroizing::new(password.into()));
         self
     }
 
@@ -424,7 +414,7 @@ mod tests {
             .password("secret-value")
             .mount_on(DriveLetter::D);
         assert_eq!(target.username.as_deref(), Some("user"));
-        assert_eq!(target.password.as_deref(), Some("secret-value"));
+        assert_eq!(target.password.as_deref().unwrap().as_str(), "secret-value");
         assert_eq!(target.local.as_deref(), Some("D:"));
         let debug = format!("{target:?}");
         assert!(debug.contains("user"));
