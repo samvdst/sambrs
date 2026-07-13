@@ -38,14 +38,10 @@ impl ConnectArgs {
     // https://learn.microsoft.com/en-us/windows/win32/api/winnetwk/ns-winnetwk-netresourcew
     fn resource(&self) -> WNet::NETRESOURCEW {
         WNet::NETRESOURCEW {
-            dwScope: 0, // ignored by WNetAddConnection2W / WNetUseConnectionW
             dwType: WNet::RESOURCETYPE_DISK,
-            dwDisplayType: 0, // ignored, as dwScope
-            dwUsage: 0,       // ignored, as dwScope
             lpLocalName: opt_ptr(self.local.as_deref()),
             lpRemoteName: self.remote.as_ptr().cast_mut(),
-            lpComment: std::ptr::null_mut(), // ignored, as dwScope
-            lpProvider: std::ptr::null_mut(),
+            ..Default::default()
         }
     }
 }
