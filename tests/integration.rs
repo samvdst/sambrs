@@ -142,7 +142,6 @@ fn force_disconnect_with_open_file_works() {
     drop(file);
     assert!(!drive_exists(DriveLetter::U));
     // Clean up the file via a fresh connection.
-    let target = self::target(Some(DriveLetter::U));
     target.connect().unwrap();
     let _ = std::fs::remove_file(r"U:\sambrs-force-disconnect.txt");
     target.disconnect().unwrap();
