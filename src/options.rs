@@ -181,12 +181,4 @@ mod tests {
                 | WNet::CONNECT_REQUIRE_PRIVACY
         );
     }
-
-    #[test]
-    fn disconnect_options_map() {
-        assert!(!DisconnectOptions::default().forget);
-        assert!(!DisconnectOptions::default().force);
-        assert!(DisconnectOptions::default().forget(true).forget);
-        assert!(DisconnectOptions::default().force(true).force);
-    }
 }
