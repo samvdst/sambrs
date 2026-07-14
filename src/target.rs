@@ -289,7 +289,7 @@ impl SmbTarget {
     /// # Errors
     /// Returns [`Error`] when the Windows call fails.
     pub fn disconnect(&self) -> Result<()> {
-        self.disconnect_with(DisconnectOptions::new())
+        self.disconnect_with(DisconnectOptions::default())
     }
 
     /// Disconnect with explicit [`DisconnectOptions`].
@@ -337,8 +337,7 @@ pub fn cancel_connection(name: &str, options: DisconnectOptions) -> Result<()> {
 }
 
 fn is_drive(name: &str) -> bool {
-    let bytes = name.as_bytes();
-    bytes.len() == 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
+    matches!(name.as_bytes(), [letter, b':'] if letter.is_ascii_alphabetic())
 }
 
 /// RAII guard returned by [`SmbTarget::connect_guarded`] and
@@ -383,7 +382,7 @@ impl Connection {
 impl Drop for Connection {
     fn drop(&mut self) {
         if self.armed {
-            if let Err(e) = cancel_connection(&self.device, DisconnectOptions::new()) {
+            if let Err(e) = cancel_connection(&self.device, DisconnectOptions::default()) {
                 debug!("failed to disconnect {} on guard drop: {e}", self.device);
             }
         }
@@ -451,7 +450,7 @@ mod tests {
             Error::PersistentGuard
         );
         assert_eq!(
-            deviceless.disconnect_with(DisconnectOptions::new().forget(true)),
+            deviceless.disconnect_with(DisconnectOptions::default().forget(true)),
             Err(Error::ForgetRequiresDrive)
         );
     }

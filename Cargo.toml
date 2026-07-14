@@ -3,7 +3,6 @@ name = "sambrs"
 version = "0.2.0"
 authors = ["Samuel Van der Stappen <shogun_einst.0i@icloud.com>"]
 license = "MIT"
-readme = "README.md"
 edition = "2024"
 rust-version = "1.85"
 repository = "https://github.com/samvdst/sambrs"

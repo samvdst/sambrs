@@ -60,7 +60,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("{}", std::fs::metadata(r"D:\")?.is_dir());
 
-    target.disconnect_with(DisconnectOptions::new().forget(true))?;
+    target.disconnect_with(DisconnectOptions::default().forget(true))?;
     Ok(())
 }
 ```
@@ -128,7 +128,7 @@ The tests mount real drive letters and must run single-threaded.
 | --- | --- |
 | `SmbShare::new(share, user, pass, Some('d'))` | `SmbTarget::new(share).credentials(user, pass).mount_on(DriveLetter::D)` |
 | `share.connect(persist, interactive)` | `target.connect_with(ConnectOptions::new().persist(persist))` |
-| `share.disconnect(persist, force)` | `target.disconnect_with(DisconnectOptions::new().forget(persist).force(force))` |
+| `share.disconnect(persist, force)` | `target.disconnect_with(DisconnectOptions::default().forget(persist).force(force))` |
 | `Error::CStringConversion` | `Error::InteriorNul` |
 
 The old `persist: true` disconnect argument removed persistence, hence the

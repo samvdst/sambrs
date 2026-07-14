@@ -114,10 +114,6 @@ pub struct DisconnectOptions {
 }
 
 impl DisconnectOptions {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// Disconnect even if files or jobs remain open on the mapping.
     pub fn force(mut self, yes: bool) -> Self {
         self.force = yes;
@@ -188,9 +184,9 @@ mod tests {
 
     #[test]
     fn disconnect_options_map() {
-        assert!(!DisconnectOptions::new().forget);
-        assert!(!DisconnectOptions::new().force);
-        assert!(DisconnectOptions::new().forget(true).forget);
-        assert!(DisconnectOptions::new().force(true).force);
+        assert!(!DisconnectOptions::default().forget);
+        assert!(!DisconnectOptions::default().force);
+        assert!(DisconnectOptions::default().forget(true).forget);
+        assert!(DisconnectOptions::default().force(true).force);
     }
 }

@@ -99,7 +99,7 @@ fn persistent_mapping_is_remembered_and_can_be_forgotten() {
         .unwrap();
 
     let remembered: Result<Vec<_>, _> = enumerate::remembered().and_then(Iterator::collect);
-    let cleanup = target.disconnect_with(DisconnectOptions::new().force(true).forget(true));
+    let cleanup = target.disconnect_with(DisconnectOptions::default().force(true).forget(true));
     cleanup.unwrap();
 
     assert!(
@@ -137,7 +137,7 @@ fn force_disconnect_with_open_file_works() {
     // Non-forced disconnect must refuse while a file is open.
     assert_eq!(target.disconnect(), Err(Error::Windows(ERROR_OPEN_FILES)));
     target
-        .disconnect_with(DisconnectOptions::new().force(true))
+        .disconnect_with(DisconnectOptions::default().force(true))
         .unwrap();
     drop(file);
     assert!(!drive_exists(DriveLetter::U));
@@ -180,7 +180,7 @@ fn connect_auto_assigns_a_device() {
         "expected a device name, got {access_name:?}"
     );
     assert!(std::path::Path::new(&format!(r"{access_name}\")).is_dir());
-    cancel_connection(&access_name, DisconnectOptions::new()).unwrap();
+    cancel_connection(&access_name, DisconnectOptions::default()).unwrap();
 }
 
 #[test]
