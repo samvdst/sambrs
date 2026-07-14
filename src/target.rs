@@ -251,10 +251,7 @@ impl SmbTarget {
         if options.is_persistent() {
             return Err(Error::PersistentGuard);
         }
-        let Some(device) = self.local.as_deref() else {
-            return Err(Error::GuardRequiresDrive);
-        };
-        let device = device.to_string();
+        let device = self.local.clone().ok_or(Error::GuardRequiresDrive)?;
         self.connect_with(options)?;
         Ok(Connection {
             device,
