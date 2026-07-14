@@ -49,10 +49,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # 2026-07
-        with:
-          toolchain: stable
-          targets: x86_64-pc-windows-msvc
+      - run: rustup target add x86_64-pc-windows-msvc
 
       - name: rustfmt
         run: cargo fmt --check
