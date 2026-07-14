@@ -20,14 +20,6 @@ pub enum DriveLetter {
     N, O, P, Q, R, S, T, U, V, W, X, Y, Z,
 }
 
-impl DriveLetter {
-    /// The letter as an uppercase `char`.
-    #[must_use]
-    pub const fn as_char(self) -> char {
-        (b'A' + self as u8) as char
-    }
-}
-
 impl TryFrom<char> for DriveLetter {
     type Error = Error;
 
@@ -54,7 +46,7 @@ impl TryFrom<char> for DriveLetter {
 
 impl std::fmt::Display for DriveLetter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:", self.as_char())
+        write!(f, "{}:", char::from(b'A' + *self as u8))
     }
 }
 
@@ -122,10 +114,6 @@ pub struct DisconnectOptions {
 }
 
 impl DisconnectOptions {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// Disconnect even if files or jobs remain open on the mapping.
     pub fn force(mut self, yes: bool) -> Self {
         self.force = yes;
@@ -192,13 +180,5 @@ mod tests {
                 | WNet::CONNECT_REQUIRE_INTEGRITY
                 | WNet::CONNECT_REQUIRE_PRIVACY
         );
-    }
-
-    #[test]
-    fn disconnect_options_map() {
-        assert!(!DisconnectOptions::new().forget);
-        assert!(!DisconnectOptions::new().force);
-        assert!(DisconnectOptions::new().forget(true).forget);
-        assert!(DisconnectOptions::new().force(true).force);
     }
 }

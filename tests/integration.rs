@@ -31,7 +31,6 @@ fn drive_exists(letter: DriveLetter) -> bool {
 
 // Lovely Windows returns several statuses for a bad password.
 #[test]
-#[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn wrong_password_fails_without_prompting() {
     let target = SmbTarget::new(required_env(SHARE))
         .credentials(required_env(USERNAME), "definitely-the-wrong-password-1");
@@ -48,7 +47,6 @@ fn wrong_password_fails_without_prompting() {
 }
 
 #[test]
-#[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn nonexistent_share_fails() {
     let target = SmbTarget::new(r"\\thisisnotashare.local\Share-Name")
         .credentials(required_env(USERNAME), required_env(PASSWORD));
@@ -68,7 +66,6 @@ fn nonexistent_share_fails() {
 }
 
 #[test]
-#[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn deviceless_connect_and_reconnect_works() {
     let target = target(None);
     target.connect().unwrap();
@@ -79,7 +76,6 @@ fn deviceless_connect_and_reconnect_works() {
 }
 
 #[test]
-#[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn mounted_reconnect_fails_with_already_assigned() {
     let target = target(Some(DriveLetter::S));
     target.connect().unwrap();
@@ -91,7 +87,6 @@ fn mounted_reconnect_fails_with_already_assigned() {
 }
 
 #[test]
-#[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn persistent_mapping_is_remembered_and_can_be_forgotten() {
     let target = target(Some(DriveLetter::R));
     target
@@ -99,7 +94,7 @@ fn persistent_mapping_is_remembered_and_can_be_forgotten() {
         .unwrap();
 
     let remembered: Result<Vec<_>, _> = enumerate::remembered().and_then(Iterator::collect);
-    let cleanup = target.disconnect_with(DisconnectOptions::new().force(true).forget(true));
+    let cleanup = target.disconnect_with(DisconnectOptions::default().force(true).forget(true));
     cleanup.unwrap();
 
     assert!(
@@ -114,7 +109,6 @@ fn persistent_mapping_is_remembered_and_can_be_forgotten() {
 }
 
 #[test]
-#[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn two_letters_to_the_same_share_work() {
     let one = target(Some(DriveLetter::S));
     let two = target(Some(DriveLetter::T));
@@ -129,7 +123,6 @@ fn two_letters_to_the_same_share_work() {
 }
 
 #[test]
-#[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn force_disconnect_with_open_file_works() {
     let target = target(Some(DriveLetter::U));
     target.connect().unwrap();
@@ -137,7 +130,7 @@ fn force_disconnect_with_open_file_works() {
     // Non-forced disconnect must refuse while a file is open.
     assert_eq!(target.disconnect(), Err(Error::Windows(ERROR_OPEN_FILES)));
     target
-        .disconnect_with(DisconnectOptions::new().force(true))
+        .disconnect_with(DisconnectOptions::default().force(true))
         .unwrap();
     drop(file);
     assert!(!drive_exists(DriveLetter::U));
@@ -153,7 +146,6 @@ fn force_disconnect_with_open_file_works() {
 // device it owns, so dropping it must not tear down an independent deviceless
 // connection to the same resource.
 #[test]
-#[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn guard_drop_leaves_other_connections_alone() {
     let deviceless = target(None);
     deviceless.connect().unwrap();
@@ -171,7 +163,6 @@ fn guard_drop_leaves_other_connections_alone() {
 // ── auto-assigned drive letter ──────────────────────────────────────────────
 
 #[test]
-#[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn connect_auto_assigns_a_device() {
     let target = target(None);
     let access_name = target.connect_auto(ConnectOptions::new()).unwrap();
@@ -180,11 +171,10 @@ fn connect_auto_assigns_a_device() {
         "expected a device name, got {access_name:?}"
     );
     assert!(std::path::Path::new(&format!(r"{access_name}\")).is_dir());
-    cancel_connection(&access_name, DisconnectOptions::new()).unwrap();
+    cancel_connection(&access_name, DisconnectOptions::default()).unwrap();
 }
 
 #[test]
-#[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn connect_auto_guarded_owns_the_assigned_device() {
     let target = target(None);
     let device;
@@ -203,7 +193,6 @@ fn connect_auto_guarded_owns_the_assigned_device() {
 // ── query ───────────────────────────────────────────────────────────────────
 
 #[test]
-#[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn get_connection_returns_the_remote_name() {
     let target = target(Some(DriveLetter::W));
     target.connect().unwrap();
@@ -217,7 +206,6 @@ fn get_connection_returns_the_remote_name() {
 }
 
 #[test]
-#[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn get_user_returns_a_user() {
     let target = target(Some(DriveLetter::W));
     target.connect().unwrap();
@@ -227,7 +215,6 @@ fn get_user_returns_a_user() {
 }
 
 #[test]
-#[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn get_universal_name_resolves_a_mounted_path() {
     let target = target(Some(DriveLetter::W));
     target.connect().unwrap();
@@ -244,7 +231,6 @@ fn get_universal_name_resolves_a_mounted_path() {
 // ── enumerate ───────────────────────────────────────────────────────────────
 
 #[test]
-#[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn enumerate_connections_contains_the_share() {
     let target = target(Some(DriveLetter::X));
     target.connect().unwrap();
@@ -260,7 +246,6 @@ fn enumerate_connections_contains_the_share() {
 }
 
 #[test]
-#[ignore = "requires a live SMB share; set SAMBRS_TEST_* and run with --include-ignored"]
 fn enumerate_server_shares_contains_the_share() {
     // \\server\share -> \\server
     let full = required_env(SHARE);

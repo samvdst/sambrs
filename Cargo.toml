@@ -3,28 +3,26 @@ name = "sambrs"
 version = "0.2.0"
 authors = ["Samuel Van der Stappen <shogun_einst.0i@icloud.com>"]
 license = "MIT"
-readme = "README.md"
 edition = "2024"
 rust-version = "1.85"
 repository = "https://github.com/samvdst/sambrs"
 categories = ["os::windows-apis", "filesystem", "api-bindings"]
 keywords = ["windows", "smb", "share", "network"]
-description = """
-Safe, opinionated Windows SMB client operations: connect, disconnect, persist, query, and enumerate existing network shares.
-"""
+description = "Safe, opinionated Windows SMB client operations: connect, disconnect, persist, query, and enumerate existing network shares."
 # Allowlist: ship only the crate itself, not repo/CI/agent tooling.
 include = ["/src", "/tests", "/README.md", "/CHANGELOG.md", "/LICENSE"]
+
+[[test]]
+name = "integration"
+test = false
 
 [target.'cfg(windows)'.dependencies]
 tracing = { version = "0.1", default-features = false }
 zeroize = "1"
 
 [target.'cfg(windows)'.dependencies.windows-sys]
-version = "0.60"
-features = [
-  "Win32_Foundation",
-  "Win32_NetworkManagement_WNet",
-]
+version = "0.61"
+features = ["Win32_NetworkManagement_WNet"]
 
 [package.metadata.docs.rs]
 default-target = "x86_64-pc-windows-msvc"

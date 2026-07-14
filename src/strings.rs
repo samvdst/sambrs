@@ -29,8 +29,8 @@ pub(crate) type WideSecret = zeroize::Zeroizing<Vec<u16>>;
 ///
 /// The caller must keep the owning buffer alive for as long as the returned
 /// pointer is in use.
-pub(crate) fn opt_ptr(buf: Option<&[u16]>) -> *mut u16 {
-    buf.map_or(std::ptr::null_mut(), |b| b.as_ptr().cast_mut())
+pub(crate) fn opt_ptr(buf: Option<&[u16]>) -> *const u16 {
+    buf.map_or(std::ptr::null(), <[u16]>::as_ptr)
 }
 
 /// Owned `String` from a wide buffer, up to the first nul (or the full buffer
@@ -60,14 +60,6 @@ pub(crate) unsafe fn from_pwstr(ptr: *const u16) -> Option<String> {
     }
 }
 
-/// Pointer to an optional secret wide string, or null when absent.
-///
-/// The caller must keep the owning buffer alive for as long as the returned
-/// pointer is in use.
-pub(crate) fn secret_ptr(buf: Option<&WideSecret>) -> *const u16 {
-    buf.map_or(std::ptr::null(), |b| b.as_ptr())
-}
-
 /// Buffer length as `u32` for Windows APIs; saturates instead of panicking.
 pub(crate) fn len_u32(len: usize) -> u32 {
     u32::try_from(len).unwrap_or(u32::MAX)
@@ -78,18 +70,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn to_wide_appends_nul() {
+    fn to_wide_converts_and_validates() {
         assert_eq!(to_wide("ab").unwrap(), vec![97, 98, 0]);
-    }
-
-    #[test]
-    fn to_wide_handles_non_ascii() {
-        // 'ü' is a single UTF-16 code unit but two UTF-8 bytes.
         assert_eq!(to_wide("ü").unwrap(), vec![0xFC, 0]);
-    }
-
-    #[test]
-    fn to_wide_rejects_interior_nul() {
         assert_eq!(to_wide("a\0b").unwrap_err(), Error::InteriorNul);
     }
 

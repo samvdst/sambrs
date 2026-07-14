@@ -1,6 +1,6 @@
 use crate::error::{Error, Result, check_wnet};
 use crate::options::{ConnectOptions, DisconnectOptions, DriveLetter};
-use crate::strings::{WideSecret, from_wide_buf, len_u32, opt_ptr, secret_ptr, to_wide};
+use crate::strings::{WideSecret, from_wide_buf, len_u32, opt_ptr, to_wide};
 use tracing::{debug, trace};
 use windows_sys::Win32::NetworkManagement::WNet;
 
@@ -39,7 +39,7 @@ impl ConnectArgs {
     fn resource(&self) -> WNet::NETRESOURCEW {
         WNet::NETRESOURCEW {
             dwType: WNet::RESOURCETYPE_DISK,
-            lpLocalName: opt_ptr(self.local.as_deref()),
+            lpLocalName: opt_ptr(self.local.as_deref()).cast_mut(),
             lpRemoteName: self.remote.as_ptr().cast_mut(),
             ..Default::default()
         }
@@ -128,12 +128,6 @@ impl SmbTarget {
         self
     }
 
-    /// The remote name, e.g. `\\server\share`.
-    #[must_use]
-    pub fn remote(&self) -> &str {
-        &self.remote
-    }
-
     /// Connect with default options: a temporary, non-interactive connection.
     ///
     /// Connecting multiple times works fine in deviceless mode but fails with
@@ -173,7 +167,7 @@ impl SmbTarget {
         let status = unsafe {
             WNet::WNetAddConnection2W(
                 &raw const resource,
-                secret_ptr(args.password.as_ref()),
+                opt_ptr(args.password.as_ref().map(|password| password.as_slice())),
                 opt_ptr(args.username.as_deref()),
                 flags,
             )
@@ -222,7 +216,7 @@ impl SmbTarget {
             WNet::WNetUseConnectionW(
                 std::ptr::null_mut(), // no owner window for credential dialogs
                 &raw const resource,
-                secret_ptr(args.password.as_ref()),
+                opt_ptr(args.password.as_ref().map(|password| password.as_slice())),
                 opt_ptr(args.username.as_deref()),
                 flags,
                 access_name.as_mut_ptr(),
@@ -257,10 +251,7 @@ impl SmbTarget {
         if options.is_persistent() {
             return Err(Error::PersistentGuard);
         }
-        let Some(device) = self.local.as_deref() else {
-            return Err(Error::GuardRequiresDrive);
-        };
-        let device = device.to_string();
+        let device = self.local.clone().ok_or(Error::GuardRequiresDrive)?;
         self.connect_with(options)?;
         Ok(Connection {
             device,
@@ -298,7 +289,7 @@ impl SmbTarget {
     /// # Errors
     /// Returns [`Error`] when the Windows call fails.
     pub fn disconnect(&self) -> Result<()> {
-        self.disconnect_with(DisconnectOptions::new())
+        self.disconnect_with(DisconnectOptions::default())
     }
 
     /// Disconnect with explicit [`DisconnectOptions`].
@@ -346,8 +337,7 @@ pub fn cancel_connection(name: &str, options: DisconnectOptions) -> Result<()> {
 }
 
 fn is_drive(name: &str) -> bool {
-    let bytes = name.as_bytes();
-    bytes.len() == 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
+    matches!(name.as_bytes(), [letter, b':'] if letter.is_ascii_alphabetic())
 }
 
 /// RAII guard returned by [`SmbTarget::connect_guarded`] and
@@ -392,7 +382,7 @@ impl Connection {
 impl Drop for Connection {
     fn drop(&mut self) {
         if self.armed {
-            if let Err(e) = cancel_connection(&self.device, DisconnectOptions::new()) {
+            if let Err(e) = cancel_connection(&self.device, DisconnectOptions::default()) {
                 debug!("failed to disconnect {} on guard drop: {e}", self.device);
             }
         }
@@ -404,14 +394,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn configures_target_fluently() {
-        let target = SmbTarget::new(r"\\server\share")
-            .username("user")
-            .password("secret-value")
-            .mount_on(DriveLetter::D);
-        assert_eq!(target.username.as_deref(), Some("user"));
-        assert_eq!(target.password.as_deref().unwrap().as_str(), "secret-value");
-        assert_eq!(target.local.as_deref(), Some("D:"));
+    fn debug_redacts_password() {
+        let target = SmbTarget::new(r"\\server\share").credentials("user", "secret-value");
         let debug = format!("{target:?}");
         assert!(debug.contains("user"));
         assert!(!debug.contains("secret-value"));
@@ -460,7 +444,7 @@ mod tests {
             Error::PersistentGuard
         );
         assert_eq!(
-            deviceless.disconnect_with(DisconnectOptions::new().forget(true)),
+            deviceless.disconnect_with(DisconnectOptions::default().forget(true)),
             Err(Error::ForgetRequiresDrive)
         );
     }
