@@ -78,18 +78,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn to_wide_appends_nul() {
+    fn to_wide_converts_and_validates() {
         assert_eq!(to_wide("ab").unwrap(), vec![97, 98, 0]);
-    }
-
-    #[test]
-    fn to_wide_handles_non_ascii() {
-        // 'ü' is a single UTF-16 code unit but two UTF-8 bytes.
         assert_eq!(to_wide("ü").unwrap(), vec![0xFC, 0]);
-    }
-
-    #[test]
-    fn to_wide_rejects_interior_nul() {
         assert_eq!(to_wide("a\0b").unwrap_err(), Error::InteriorNul);
     }
 
