@@ -14,9 +14,6 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # 2026-07
-        with:
-          toolchain: stable
 
       - name: Provision a local user and SMB share
         shell: pwsh
