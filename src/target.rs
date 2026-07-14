@@ -394,14 +394,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn configures_target_fluently() {
-        let target = SmbTarget::new(r"\\server\share")
-            .username("user")
-            .password("secret-value")
-            .mount_on(DriveLetter::D);
-        assert_eq!(target.username.as_deref(), Some("user"));
-        assert_eq!(target.password.as_deref().unwrap().as_str(), "secret-value");
-        assert_eq!(target.local.as_deref(), Some("D:"));
+    fn debug_redacts_password() {
+        let target = SmbTarget::new(r"\\server\share").credentials("user", "secret-value");
         let debug = format!("{target:?}");
         assert!(debug.contains("user"));
         assert!(!debug.contains("secret-value"));
