@@ -27,8 +27,8 @@ jobs:
           SAMBRS_TEST_SHARE: \\localhost\sambrs-test
           SAMBRS_TEST_PASSWORD: Sambrs-CI-Pass-1!
 
-  msrv:
-    name: MSRV check (Rust 1.85, Windows target)
+  checks:
+    name: MSRV, lint, and docs (Windows target)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -37,11 +37,6 @@ jobs:
           rustup toolchain install 1.85 --profile minimal --target x86_64-pc-windows-msvc
           cargo +1.85 check --target x86_64-pc-windows-msvc --all-targets
 
-  lint:
-    name: Lint and docs (Windows target)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - run: rustup target add x86_64-pc-windows-msvc
 
       - name: rustfmt
