@@ -9,9 +9,7 @@ rust-version = "1.85"
 repository = "https://github.com/samvdst/sambrs"
 categories = ["os::windows-apis", "filesystem", "api-bindings"]
 keywords = ["windows", "smb", "share", "network"]
-description = """
-Safe, opinionated Windows SMB client operations: connect, disconnect, persist, query, and enumerate existing network shares.
-"""
+description = "Safe, opinionated Windows SMB client operations: connect, disconnect, persist, query, and enumerate existing network shares."
 # Allowlist: ship only the crate itself, not repo/CI/agent tooling.
 include = ["/src", "/tests", "/README.md", "/CHANGELOG.md", "/LICENSE"]
 
