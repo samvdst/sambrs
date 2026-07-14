@@ -1,6 +1,6 @@
 use crate::error::{Error, Result, check_wnet};
 use crate::options::{ConnectOptions, DisconnectOptions, DriveLetter};
-use crate::strings::{WideSecret, from_wide_buf, len_u32, opt_ptr, secret_ptr, to_wide};
+use crate::strings::{WideSecret, from_wide_buf, len_u32, opt_ptr, to_wide};
 use tracing::{debug, trace};
 use windows_sys::Win32::NetworkManagement::WNet;
 
@@ -39,7 +39,7 @@ impl ConnectArgs {
     fn resource(&self) -> WNet::NETRESOURCEW {
         WNet::NETRESOURCEW {
             dwType: WNet::RESOURCETYPE_DISK,
-            lpLocalName: opt_ptr(self.local.as_deref()),
+            lpLocalName: opt_ptr(self.local.as_deref()).cast_mut(),
             lpRemoteName: self.remote.as_ptr().cast_mut(),
             ..Default::default()
         }
@@ -167,7 +167,7 @@ impl SmbTarget {
         let status = unsafe {
             WNet::WNetAddConnection2W(
                 &raw const resource,
-                secret_ptr(args.password.as_ref()),
+                opt_ptr(args.password.as_ref().map(|password| password.as_slice())),
                 opt_ptr(args.username.as_deref()),
                 flags,
             )
@@ -216,7 +216,7 @@ impl SmbTarget {
             WNet::WNetUseConnectionW(
                 std::ptr::null_mut(), // no owner window for credential dialogs
                 &raw const resource,
-                secret_ptr(args.password.as_ref()),
+                opt_ptr(args.password.as_ref().map(|password| password.as_slice())),
                 opt_ptr(args.username.as_deref()),
                 flags,
                 access_name.as_mut_ptr(),
