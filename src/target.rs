@@ -128,12 +128,6 @@ impl SmbTarget {
         self
     }
 
-    /// The remote name, e.g. `\\server\share`.
-    #[must_use]
-    pub fn remote(&self) -> &str {
-        &self.remote
-    }
-
     /// Connect with default options: a temporary, non-interactive connection.
     ///
     /// Connecting multiple times works fine in deviceless mode but fails with
