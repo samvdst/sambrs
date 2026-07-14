@@ -12,6 +12,10 @@ description = "Safe, opinionated Windows SMB client operations: connect, disconn
 # Allowlist: ship only the crate itself, not repo/CI/agent tooling.
 include = ["/src", "/tests", "/README.md", "/CHANGELOG.md", "/LICENSE"]
 
+[[test]]
+name = "integration"
+test = false
+
 [target.'cfg(windows)'.dependencies]
 tracing = { version = "0.1", default-features = false }
 zeroize = "1"

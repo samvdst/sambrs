@@ -22,7 +22,7 @@ jobs:
           "SAMBRS_TEST_USERNAME=$env:COMPUTERNAME\smbtest" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Unit + integration tests
-        run: cargo test -- --include-ignored --test-threads=1
+        run: cargo test && cargo test --test integration -- --test-threads=1
         env:
           SAMBRS_TEST_SHARE: \\localhost\sambrs-test
           SAMBRS_TEST_PASSWORD: Sambrs-CI-Pass-1!

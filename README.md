@@ -107,15 +107,15 @@ let unc = sambrs::query::get_universal_name(r"D:\folder\file.txt")?;
 
 ## Testing
 
-The integration tests need a real share and are ignored by default. Point
-them at one and include them explicitly:
+The integration tests need a real share and are excluded by default. Point
+them at one and run them explicitly:
 
 ```text
 SAMBRS_TEST_SHARE=\\server\share
 SAMBRS_TEST_USERNAME=DOMAIN\user
 SAMBRS_TEST_PASSWORD=...
 
-cargo test -- --include-ignored --test-threads=1
+cargo test --test integration -- --test-threads=1
 ```
 
 The tests mount real drive letters and must run single-threaded.
