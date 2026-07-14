@@ -10,7 +10,7 @@
 //! # Ok::<(), sambrs::Error>(())
 //! ```
 
-use crate::error::{Error, Result, wnet_extended_error};
+use crate::error::{Error, Result, check_wnet, wnet_extended_error};
 use crate::strings::{from_pwstr, len_u32, to_wide};
 use std::collections::VecDeque;
 use tracing::{debug, trace};
@@ -45,18 +45,13 @@ impl Iterator for Resources {
     type Item = Result<NetResource>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            if let Some(resource) = self.batch.pop_front() {
-                return Some(Ok(resource));
-            }
-            if self.finished {
-                return None;
-            }
+        if self.batch.is_empty() && !self.finished {
             if let Err(e) = self.fill() {
                 self.finished = true;
                 return Some(Err(e));
             }
         }
+        self.batch.pop_front().map(Ok)
     }
 }
 
@@ -136,14 +131,9 @@ impl Drop for Resources {
 fn open(scope: u32, root_remote: Option<&str>) -> Result<Resources> {
     let remote = root_remote.map(to_wide).transpose()?;
     let root = remote.as_ref().map(|remote| WNet::NETRESOURCEW {
-        dwScope: 0,
-        dwType: 0,
-        dwDisplayType: 0,
         dwUsage: WNet::RESOURCEUSAGE_CONTAINER,
-        lpLocalName: std::ptr::null_mut(),
         lpRemoteName: remote.as_ptr().cast_mut(),
-        lpComment: std::ptr::null_mut(),
-        lpProvider: std::ptr::null_mut(),
+        ..Default::default()
     });
 
     let mut handle: HANDLE = std::ptr::null_mut();
@@ -158,16 +148,13 @@ fn open(scope: u32, root_remote: Option<&str>) -> Result<Resources> {
         )
     };
     debug!("WNetOpenEnumW returned {status}");
-    match status {
-        NO_ERROR => Ok(Resources {
-            handle,
-            batch: VecDeque::new(),
-            buf: vec![0u64; 2048], // 16 KiB to start; grows on demand
-            finished: false,
-        }),
-        ERROR_EXTENDED_ERROR => Err(wnet_extended_error()),
-        code => Err(Error::Windows(code)),
-    }
+    check_wnet(status)?;
+    Ok(Resources {
+        handle,
+        batch: VecDeque::new(),
+        buf: vec![0u64; 2048], // 16 KiB to start; grows on demand
+        finished: false,
+    })
 }
 
 /// Currently connected resources (`RESOURCE_CONNECTED`) — every active

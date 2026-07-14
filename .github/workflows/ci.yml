@@ -36,13 +36,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # 2026-07
-        with:
-          toolchain: '1.85'
-          targets: x86_64-pc-windows-msvc
-
       - name: crate (incl. tests) compiles on the declared MSRV
-        run: cargo check --target x86_64-pc-windows-msvc --all-targets
+        run: |
+          rustup toolchain install 1.85 --profile minimal --target x86_64-pc-windows-msvc
+          cargo +1.85 check --target x86_64-pc-windows-msvc --all-targets
 
   lint:
     name: Lint and docs (Windows target)
