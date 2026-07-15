@@ -4,7 +4,6 @@ version = "0.2.0"
 authors = ["Samuel Van der Stappen <shogun_einst.0i@icloud.com>"]
 license = "MIT"
 edition = "2024"
-rust-version = "1.85"
 repository = "https://github.com/samvdst/sambrs"
 categories = ["os::windows-apis", "filesystem", "api-bindings"]
 keywords = ["windows", "smb", "share", "network"]

@@ -36,8 +36,6 @@ dependency conditional:
 sambrs = "0.2"
 ```
 
-MSRV is Rust 1.85 (edition 2024).
-
 ## Usage
 
 Configure an `SmbTarget` and establish a connection. Once connected,
