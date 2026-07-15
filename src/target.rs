@@ -382,9 +382,10 @@ impl Connection {
 impl Drop for Connection {
     fn drop(&mut self) {
         if self.armed
-            && let Err(e) = cancel_connection(&self.device, DisconnectOptions::default()) {
-                debug!("failed to disconnect {} on guard drop: {e}", self.device);
-            }
+            && let Err(e) = cancel_connection(&self.device, DisconnectOptions::default())
+        {
+            debug!("failed to disconnect {} on guard drop: {e}", self.device);
+        }
     }
 }
 
