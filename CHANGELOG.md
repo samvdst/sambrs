@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.1
+
+### Added
+
+- `Error::code()` returns the Windows status code of an `Error::Windows`.
+- `Error::is_credential_rejected()` identifies statuses where Windows rejected
+  the credential itself: invalid password, logon failure, account restriction,
+  expired password, disabled account, expired account, password must change,
+  or locked-out account. Callers should not retry these, because each retry
+  counts as another failed logon toward account lockout.
+
 ## 0.2.0 (2026-07-15)
 
 A breaking rework into a safe, opinionated Windows client for existing SMB
