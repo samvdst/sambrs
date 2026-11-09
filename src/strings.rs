@@ -6,7 +6,8 @@ use crate::{Error, Result};
 /// Encode a `&str` as a nul-terminated UTF-16 buffer.
 ///
 /// The buffer is allocated with its final capacity up front so no intermediate
-/// heap copy of the data is left behind (relevant for the `zeroize` feature).
+/// heap copy of the data is left behind (relevant when the result is wrapped in
+/// a [`WideSecret`] that is zeroized on drop).
 /// The interior-NUL check runs on the `&str` before any allocation — a non-NUL
 /// char never encodes to a 0 UTF-16 unit, so it is equivalent to scanning the
 /// encoded buffer — which keeps the error path free of transient copies too.
