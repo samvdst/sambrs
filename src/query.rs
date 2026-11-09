@@ -15,7 +15,7 @@ fn wide_out(operation: &str, mut call: impl FnMut(*mut u16, *mut u32) -> u32) ->
     for _ in 0..4 {
         let mut len = len_u32(buf.len());
         let status = call(buf.as_mut_ptr(), &raw mut len);
-        debug!("{operation} returned {status}");
+        debug!(operation, status, "WNet call returned");
         match status {
             NO_ERROR => return Ok(crate::strings::from_wide_buf(&buf)),
             // `len` now holds the required size in characters.
@@ -40,7 +40,7 @@ fn wide_out(operation: &str, mut call: impl FnMut(*mut u16, *mut u32) -> u32) ->
 /// `ERROR_CONNECTION_UNAVAIL` if it is remembered but not currently
 /// connected, or `ERROR_BAD_DEVICE` for an invalid device name.
 pub fn get_connection(drive: &str) -> Result<String> {
-    trace!("querying remote share mapped to {drive}");
+    trace!(drive, "querying remote share mapped to drive");
     let device = to_wide(drive)?;
     // SAFETY: `device` outlives the call; the buffer is sized via `len`.
     wide_out("WNetGetConnectionW", |buf, len| unsafe {
@@ -55,13 +55,13 @@ pub fn get_connection(drive: &str) -> Result<String> {
 /// # Errors
 /// `ERROR_NOT_CONNECTED` if the name is not a connected resource.
 pub fn get_user(connection: &str) -> Result<String> {
-    trace!("querying user for {connection}");
+    trace!(connection, "querying connection user");
     let name = to_wide(connection)?;
     // SAFETY: `name` outlives the call.
     let user = wide_out("WNetGetUserW", |buf, len| unsafe {
         WNet::WNetGetUserW(name.as_ptr(), buf, len)
     })?;
-    debug!("WNetGetUserW resolved user {user}");
+    debug!(user = user.as_str(), "WNetGetUserW resolved user");
     Ok(user)
 }
 
@@ -89,7 +89,7 @@ pub fn get_universal_name(local_path: &str) -> Result<String> {
                 &raw mut size,
             )
         };
-        debug!("WNetGetUniversalNameW returned {status}");
+        debug!(status, "WNetGetUniversalNameW returned");
         match status {
             NO_ERROR => {
                 // SAFETY: on success the buffer starts with a

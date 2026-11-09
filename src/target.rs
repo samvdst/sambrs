@@ -156,9 +156,10 @@ impl SmbTarget {
         let resource = args.resource();
 
         trace!(
-            "connecting to {} as {} with flags {flags:#x}",
-            self.remote,
-            self.username.as_deref().unwrap_or("<logged-on user>")
+            remote = self.remote.as_str(),
+            user = self.username.as_deref(),
+            flags,
+            "connecting"
         );
 
         // SAFETY: all pointers in `resource` and the credential pointers stay
@@ -173,7 +174,7 @@ impl SmbTarget {
             )
         };
 
-        debug!("WNetAddConnection2W returned {status}");
+        debug!(status, "WNetAddConnection2W returned");
         check_wnet(status)
     }
 
@@ -194,9 +195,10 @@ impl SmbTarget {
         let resource = args.resource();
 
         trace!(
-            "auto-connecting to {} as {} with flags {flags:#x}",
-            self.remote,
-            self.username.as_deref().unwrap_or("<logged-on user>")
+            remote = self.remote.as_str(),
+            user = self.username.as_deref(),
+            flags,
+            "auto-connecting"
         );
 
         // Sized so any real access name fits on the first call: the name is
@@ -224,7 +226,7 @@ impl SmbTarget {
                 &raw mut result,
             )
         };
-        debug!("WNetUseConnectionW returned {status}, result {result:#x}");
+        debug!(status, result, "WNetUseConnectionW returned");
         check_wnet(status)?;
         Ok(from_wide_buf(&access_name))
     }
@@ -321,8 +323,10 @@ pub fn cancel_connection(name: &str, options: DisconnectOptions) -> Result<()> {
     }
     let wide = to_wide(name)?;
     trace!(
-        "disconnecting {name} (force={}, forget={})",
-        options.force, options.forget
+        name,
+        force = options.force,
+        forget = options.forget,
+        "disconnecting"
     );
     // SAFETY: `wide` is a valid nul-terminated string outliving the call.
     let flags = if options.forget {
@@ -332,7 +336,7 @@ pub fn cancel_connection(name: &str, options: DisconnectOptions) -> Result<()> {
     };
     let status =
         unsafe { WNet::WNetCancelConnection2W(wide.as_ptr(), flags, i32::from(options.force)) };
-    debug!("WNetCancelConnection2W returned {status}");
+    debug!(status, "WNetCancelConnection2W returned");
     check_wnet(status)
 }
 
@@ -384,7 +388,11 @@ impl Drop for Connection {
         if self.armed
             && let Err(e) = cancel_connection(&self.device, DisconnectOptions::default())
         {
-            debug!("failed to disconnect {} on guard drop: {e}", self.device);
+            debug!(
+                device = self.device.as_str(),
+                error = %e,
+                "failed to disconnect on guard drop"
+            );
         }
     }
 }

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.2 (unreleased)
+
+### Changed
+
+- Log events are now structured: values such as `status`, `remote`, `user`,
+  `flags`, and `error` are recorded as `tracing` fields instead of being
+  interpolated into the message, so subscribers can filter and aggregate on
+  them. Messages are now constant per event. Numeric flags and results are
+  recorded as integers rather than hex strings, and the `user` field is absent
+  when connecting as the logged-on user.
+
 ## 0.2.1 (2026-11-09)
 
 ### Added

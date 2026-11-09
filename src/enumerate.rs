@@ -63,7 +63,12 @@ impl Iterator for Resources {
                     &raw mut size,
                 )
             };
-            debug!("WNetEnumResourceW returned {status} (entries={count}, bytes={size})");
+            debug!(
+                status,
+                entries = count,
+                bytes = size,
+                "WNetEnumResourceW returned"
+            );
             match status {
                 NO_ERROR if count == 0 => {
                     trace!("zero-entry success; treating as end of enumeration");
@@ -111,7 +116,7 @@ impl Drop for Resources {
     fn drop(&mut self) {
         // SAFETY: the handle came from WNetOpenEnumW and is closed only here.
         let status = unsafe { WNet::WNetCloseEnum(self.handle) };
-        debug!("WNetCloseEnum returned {status}");
+        debug!(status, "WNetCloseEnum returned");
     }
 }
 
@@ -134,7 +139,7 @@ fn open(scope: u32, root_remote: Option<&str>) -> Result<Resources> {
             &raw mut handle,
         )
     };
-    debug!("WNetOpenEnumW returned {status}");
+    debug!(status, "WNetOpenEnumW returned");
     check_wnet(status)?;
     Ok(Resources {
         handle,
@@ -173,6 +178,6 @@ pub fn remembered() -> Result<Resources> {
 /// `ERROR_BAD_NET_NAME` / `ERROR_NO_NET_OR_BAD_PATH` when the server cannot
 /// be found, or `ERROR_ACCESS_DENIED` when it refuses anonymous enumeration.
 pub fn server_shares(server: &str) -> Result<Resources> {
-    trace!("enumerating disk shares on {server}");
+    trace!(server, "enumerating disk shares on server");
     open(WNet::RESOURCE_GLOBALNET, Some(server))
 }
