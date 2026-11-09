@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.1
+## 0.2.1 (2026-11-09)
 
 ### Added
 
@@ -55,7 +55,7 @@ disk shares.
 - Individual variants for Windows status codes, superseded by
   `Error::Windows(code)`.
 
-## 0.1.2
+## 0.1.2 (2024-07-29)
 
 - Description and examples; edition 2024; initial `WNetAddConnection2A` /
   `WNetCancelConnection2A` wrapper with typed errors.
