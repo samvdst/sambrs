@@ -1,4 +1,8 @@
-use windows_sys::Win32::Foundation::{ERROR_EXTENDED_ERROR, NO_ERROR};
+use windows_sys::Win32::Foundation::{
+    ERROR_ACCOUNT_DISABLED, ERROR_ACCOUNT_EXPIRED, ERROR_ACCOUNT_LOCKED_OUT,
+    ERROR_ACCOUNT_RESTRICTION, ERROR_EXTENDED_ERROR, ERROR_INVALID_PASSWORD, ERROR_LOGON_FAILURE,
+    ERROR_PASSWORD_EXPIRED, ERROR_PASSWORD_MUST_CHANGE, NO_ERROR,
+};
 use windows_sys::Win32::NetworkManagement::WNet;
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -59,6 +63,44 @@ impl std::fmt::Display for Error {
     }
 }
 
+impl Error {
+    /// The Windows status code behind an [`Error::Windows`], or `None` for
+    /// every other variant. Provider-specific codes stay on
+    /// [`Error::ExtendedError`].
+    #[must_use]
+    pub fn code(&self) -> Option<u32> {
+        match self {
+            Self::Windows(code) => Some(*code),
+            _ => None,
+        }
+    }
+
+    /// Whether Windows rejected the credentials themselves: a wrong password,
+    /// or an account that is locked out, disabled, expired, restricted, or
+    /// whose password has expired or must change.
+    ///
+    /// Do not retry a rejected credential. Each attempt counts as another
+    /// failed logon and can lock the account out. Wait for the credential to
+    /// change instead. Transient failures (unreachable server, session
+    /// conflicts, and so on) return `false`.
+    #[must_use]
+    pub fn is_credential_rejected(&self) -> bool {
+        matches!(
+            self.code(),
+            Some(
+                ERROR_INVALID_PASSWORD
+                    | ERROR_LOGON_FAILURE
+                    | ERROR_ACCOUNT_RESTRICTION
+                    | ERROR_PASSWORD_EXPIRED
+                    | ERROR_ACCOUNT_DISABLED
+                    | ERROR_ACCOUNT_EXPIRED
+                    | ERROR_PASSWORD_MUST_CHANGE
+                    | ERROR_ACCOUNT_LOCKED_OUT
+            )
+        )
+    }
+}
+
 impl std::error::Error for Error {}
 
 fn os_message(code: u32) -> String {
@@ -105,5 +147,37 @@ pub(crate) fn wnet_extended_error() -> Error {
             description: String::from("<provider error details unavailable>"),
             provider: String::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn statuses_keep_their_code_and_classify_credential_rejection() {
+        assert_eq!(check_wnet(NO_ERROR), Ok(()));
+        for (code, rejected) in [
+            (86, true),    // invalid password
+            (1326, true),  // logon failure
+            (1327, true),  // account restriction
+            (1330, true),  // password expired
+            (1331, true),  // account disabled
+            (1793, true),  // account expired
+            (1907, true),  // password must change
+            (1909, true),  // account locked out
+            (53, false),   // bad net path
+            (1219, false), // session credential conflict
+            (2250, false), // not connected
+            (1234, false), // unlisted
+        ] {
+            let error = check_wnet(code).unwrap_err();
+            assert_eq!(error, Error::Windows(code));
+            assert_eq!(error.code(), Some(code));
+            assert_eq!(error.is_credential_rejected(), rejected, "code {code}");
+            assert!(error.to_string().contains(&code.to_string()));
+        }
+        assert_eq!(Error::InteriorNul.code(), None);
+        assert!(!Error::InteriorNul.is_credential_rejected());
     }
 }
