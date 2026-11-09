@@ -4,12 +4,22 @@
 
 ### Changed
 
-- Log events are now structured: values such as `status`, `remote`, `user`,
-  `flags`, and `error` are recorded as `tracing` fields instead of being
-  interpolated into the message, so subscribers can filter and aggregate on
-  them. Messages are now constant per event. Numeric flags and results are
-  recorded as integers rather than hex strings, and the `user` field is absent
-  when connecting as the logged-on user.
+- Logging is structured. Every public operation opens a `debug` span named
+  after the function, with its inputs (`remote`, `user`, `local`, `flags`,
+  `name`, `drive`, `path`, `server`, and so on) as fields, so every event
+  inside it carries that context. Usernames therefore appear at debug level;
+  passwords are still never logged.
+- Every Windows call emits one `debug` event, `"WNet call returned"`, with
+  `operation` and the raw `status` as fields, so `status != 0` finds every
+  failed call. Flags and results are integers rather than hex strings.
+- Enumeration logs each entry at `trace` and a single `debug` summary with the
+  number of `entries` when it finishes.
+- `connect_auto` logs the access name Windows assigned.
+- A `Connection` guard that fails to disconnect on drop now logs a `warn`
+  event, since it cannot return the error. A drive that was already
+  disconnected stays at `debug`.
+- `WNetGetUserW` no longer logs the resolved user name; it is the return value.
+- The README documents the span and field names.
 
 ## 0.2.1 (2026-11-09)
 

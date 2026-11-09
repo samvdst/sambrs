@@ -4,7 +4,7 @@
 
 use crate::error::{Error, Result, wnet_extended_error};
 use crate::strings::{from_pwstr, len_u32, to_wide};
-use tracing::{debug, trace};
+use tracing::{debug, debug_span};
 use windows_sys::Win32::Foundation::{ERROR_EXTENDED_ERROR, ERROR_MORE_DATA, NO_ERROR};
 use windows_sys::Win32::NetworkManagement::WNet;
 
@@ -40,7 +40,7 @@ fn wide_out(operation: &str, mut call: impl FnMut(*mut u16, *mut u32) -> u32) ->
 /// `ERROR_CONNECTION_UNAVAIL` if it is remembered but not currently
 /// connected, or `ERROR_BAD_DEVICE` for an invalid device name.
 pub fn get_connection(drive: &str) -> Result<String> {
-    trace!(drive, "querying remote share mapped to drive");
+    let _span = debug_span!("get_connection", drive).entered();
     let device = to_wide(drive)?;
     // SAFETY: `device` outlives the call; the buffer is sized via `len`.
     wide_out("WNetGetConnectionW", |buf, len| unsafe {
@@ -55,14 +55,12 @@ pub fn get_connection(drive: &str) -> Result<String> {
 /// # Errors
 /// `ERROR_NOT_CONNECTED` if the name is not a connected resource.
 pub fn get_user(connection: &str) -> Result<String> {
-    trace!(connection, "querying connection user");
+    let _span = debug_span!("get_user", connection).entered();
     let name = to_wide(connection)?;
     // SAFETY: `name` outlives the call.
-    let user = wide_out("WNetGetUserW", |buf, len| unsafe {
+    wide_out("WNetGetUserW", |buf, len| unsafe {
         WNet::WNetGetUserW(name.as_ptr(), buf, len)
-    })?;
-    debug!(user = user.as_str(), "WNetGetUserW resolved user");
-    Ok(user)
+    })
 }
 
 /// The UNC path for a local path on a redirected drive, via
@@ -73,7 +71,7 @@ pub fn get_user(connection: &str) -> Result<String> {
 /// `ERROR_NOT_SUPPORTED` or `ERROR_NOT_CONNECTED` when the path is not on a
 /// network-redirected device.
 pub fn get_universal_name(local_path: &str) -> Result<String> {
-    trace!("resolving universal name for mapped path");
+    let _span = debug_span!("get_universal_name", path = local_path).entered();
     let path = to_wide(local_path)?;
     // u64 elements keep the buffer aligned for UNIVERSAL_NAME_INFOW.
     let mut buf = vec![0u64; 128];
@@ -89,7 +87,10 @@ pub fn get_universal_name(local_path: &str) -> Result<String> {
                 &raw mut size,
             )
         };
-        debug!(status, "WNetGetUniversalNameW returned");
+        debug!(
+            operation = "WNetGetUniversalNameW",
+            status, "WNet call returned"
+        );
         match status {
             NO_ERROR => {
                 // SAFETY: on success the buffer starts with a

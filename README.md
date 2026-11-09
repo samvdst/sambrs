@@ -22,9 +22,26 @@ It deliberately does not create or administer shares, handle printers, expose
 raw `WNet` controls, or transfer files. See the [boundary
 ADR](https://github.com/samvdst/sambrs/blob/main/docs/adr/0001-opinionated-smb-client-boundary.md).
 
-Passwords and their temporary UTF-16 buffers are wiped on drop. Operations,
-targets, usernames, options, and raw Windows statuses are emitted through
-`tracing`; passwords are never logged.
+Passwords and their temporary UTF-16 buffers are wiped on drop, and are
+never logged.
+
+### Logging
+
+sambrs logs through [`tracing`](https://docs.rs/tracing) and leaves output to
+your subscriber. Every public operation opens a `debug` span named after the
+function (`connect_with`, `connect_auto`, `cancel_connection`,
+`get_connection`, `get_user`, `get_universal_name`, `connections`,
+`remembered`, `server_shares`) with its inputs as fields: `remote`, `user`
+(absent for the logged-on user), `local`, `flags`, `name`, `force`, `forget`,
+`drive`, `connection`, `path`, `server`. Usernames therefore appear at debug
+level.
+
+Inside a span, each Windows call emits a `debug` event, `"WNet call
+returned"`, with `operation` (the Windows function) and its raw `status`, so
+filtering on `status != 0` shows every failed call. Per-entry enumeration
+calls stay at `trace`. Failures are returned as `Error`s rather than logged;
+the one exception is a `Connection` guard that cannot disconnect on drop,
+which emits a `warn` event because it has no other way to report it.
 
 ## Installation
 
