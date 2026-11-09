@@ -12,7 +12,7 @@
 
 use crate::error::{Error, Result, check_wnet, wnet_extended_error};
 use crate::strings::{from_pwstr, len_u32, to_wide};
-use tracing::{debug, trace};
+use tracing::{Span, debug, debug_span, trace};
 use windows_sys::Win32::Foundation::{
     ERROR_EXTENDED_ERROR, ERROR_MORE_DATA, ERROR_NO_MORE_ITEMS, HANDLE, NO_ERROR,
 };
@@ -37,6 +37,18 @@ pub struct Resources {
     /// elements keep it `NETRESOURCEW`-aligned.
     buf: Vec<u64>,
     finished: bool,
+    /// Resources yielded so far, reported when the enumeration finishes.
+    entries: usize,
+    /// The span of the call that opened this enumeration, re-entered on every
+    /// step so later events stay attached to it.
+    span: Span,
+}
+
+impl Resources {
+    fn finish(&mut self) {
+        self.finished = true;
+        debug!(entries = self.entries, "enumeration finished");
+    }
 }
 
 impl Iterator for Resources {
@@ -46,6 +58,8 @@ impl Iterator for Resources {
         if self.finished {
             return None;
         }
+        let span = self.span.clone();
+        let _entered = span.enter();
 
         // Bounded retries as a defensive measure against a misbehaving
         // provider that keeps demanding a bigger buffer (mirrors the cap in
@@ -63,11 +77,30 @@ impl Iterator for Resources {
                     &raw mut size,
                 )
             };
-            debug!("WNetEnumResourceW returned {status} (entries={count}, bytes={size})");
+            // One call per resource: routine results stay at trace so a large
+            // enumeration does not flood debug output; anything else is a
+            // failure or a buffer retry and stays visible at debug.
+            if matches!(status, NO_ERROR | ERROR_NO_MORE_ITEMS) {
+                trace!(
+                    operation = "WNetEnumResourceW",
+                    status,
+                    count,
+                    bytes = size,
+                    "WNet call returned"
+                );
+            } else {
+                debug!(
+                    operation = "WNetEnumResourceW",
+                    status,
+                    count,
+                    bytes = size,
+                    "WNet call returned"
+                );
+            }
             match status {
                 NO_ERROR if count == 0 => {
                     trace!("zero-entry success; treating as end of enumeration");
-                    self.finished = true;
+                    self.finish();
                     return None;
                 }
                 NO_ERROR => {
@@ -81,10 +114,11 @@ impl Iterator for Resources {
                             remote_name: from_pwstr(raw.lpRemoteName),
                         }
                     };
+                    self.entries += 1;
                     return Some(Ok(resource));
                 }
                 ERROR_NO_MORE_ITEMS => {
-                    self.finished = true;
+                    self.finish();
                     return None;
                 }
                 // Buffer too small for a single entry; `size` holds the
@@ -109,13 +143,16 @@ impl Iterator for Resources {
 
 impl Drop for Resources {
     fn drop(&mut self) {
+        let _entered = self.span.enter();
         // SAFETY: the handle came from WNetOpenEnumW and is closed only here.
         let status = unsafe { WNet::WNetCloseEnum(self.handle) };
-        debug!("WNetCloseEnum returned {status}");
+        debug!(operation = "WNetCloseEnum", status, "WNet call returned");
     }
 }
 
-fn open(scope: u32, root_remote: Option<&str>) -> Result<Resources> {
+/// Open an enumeration inside `span`, which the returned iterator keeps.
+fn open(span: Span, scope: u32, root_remote: Option<&str>) -> Result<Resources> {
+    let entered = span.entered();
     let remote = root_remote.map(to_wide).transpose()?;
     let root = remote.as_ref().map(|remote| WNet::NETRESOURCEW {
         dwUsage: WNet::RESOURCEUSAGE_CONTAINER,
@@ -134,12 +171,14 @@ fn open(scope: u32, root_remote: Option<&str>) -> Result<Resources> {
             &raw mut handle,
         )
     };
-    debug!("WNetOpenEnumW returned {status}");
+    debug!(operation = "WNetOpenEnumW", status, "WNet call returned");
     check_wnet(status)?;
     Ok(Resources {
         handle,
         buf: vec![0u64; 2048], // 16 KiB to start; grows on demand
         finished: false,
+        entries: 0,
+        span: entered.exit(),
     })
 }
 
@@ -149,8 +188,7 @@ fn open(scope: u32, root_remote: Option<&str>) -> Result<Resources> {
 /// # Errors
 /// See [`Error`].
 pub fn connections() -> Result<Resources> {
-    trace!("enumerating active disk-share connections");
-    open(WNet::RESOURCE_CONNECTED, None)
+    open(debug_span!("connections"), WNet::RESOURCE_CONNECTED, None)
 }
 
 /// Remembered (persistent) connections (`RESOURCE_REMEMBERED`) — restored at
@@ -159,8 +197,7 @@ pub fn connections() -> Result<Resources> {
 /// # Errors
 /// See [`Error`].
 pub fn remembered() -> Result<Resources> {
-    trace!("enumerating remembered disk-share mappings");
-    open(WNet::RESOURCE_REMEMBERED, None)
+    open(debug_span!("remembered"), WNet::RESOURCE_REMEMBERED, None)
 }
 
 /// The disk shares a server exposes (`RESOURCE_GLOBALNET` rooted at `server`,
@@ -173,6 +210,9 @@ pub fn remembered() -> Result<Resources> {
 /// `ERROR_BAD_NET_NAME` / `ERROR_NO_NET_OR_BAD_PATH` when the server cannot
 /// be found, or `ERROR_ACCESS_DENIED` when it refuses anonymous enumeration.
 pub fn server_shares(server: &str) -> Result<Resources> {
-    trace!("enumerating disk shares on {server}");
-    open(WNet::RESOURCE_GLOBALNET, Some(server))
+    open(
+        debug_span!("server_shares", server),
+        WNet::RESOURCE_GLOBALNET,
+        Some(server),
+    )
 }

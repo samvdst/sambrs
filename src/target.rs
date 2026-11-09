@@ -1,7 +1,8 @@
 use crate::error::{Error, Result, check_wnet};
 use crate::options::{ConnectOptions, DisconnectOptions, DriveLetter};
 use crate::strings::{WideSecret, from_wide_buf, len_u32, opt_ptr, to_wide};
-use tracing::{debug, trace};
+use tracing::{debug, debug_span, warn};
+use windows_sys::Win32::Foundation::ERROR_NOT_CONNECTED;
 use windows_sys::Win32::NetworkManagement::WNet;
 
 /// The wide-string buffers for one connect call, converted from an
@@ -155,11 +156,14 @@ impl SmbTarget {
         let args = ConnectArgs::new(self)?;
         let resource = args.resource();
 
-        trace!(
-            "connecting to {} as {} with flags {flags:#x}",
-            self.remote,
-            self.username.as_deref().unwrap_or("<logged-on user>")
-        );
+        let _span = debug_span!(
+            "connect_with",
+            remote = self.remote.as_str(),
+            user = self.username.as_deref(),
+            local = self.local.as_deref(),
+            flags,
+        )
+        .entered();
 
         // SAFETY: all pointers in `resource` and the credential pointers stay
         // valid for the duration of the call — they borrow from the buffers
@@ -173,7 +177,10 @@ impl SmbTarget {
             )
         };
 
-        debug!("WNetAddConnection2W returned {status}");
+        debug!(
+            operation = "WNetAddConnection2W",
+            status, "WNet call returned"
+        );
         check_wnet(status)
     }
 
@@ -193,11 +200,14 @@ impl SmbTarget {
         let args = ConnectArgs::new(self)?;
         let resource = args.resource();
 
-        trace!(
-            "auto-connecting to {} as {} with flags {flags:#x}",
-            self.remote,
-            self.username.as_deref().unwrap_or("<logged-on user>")
-        );
+        let _span = debug_span!(
+            "connect_auto",
+            remote = self.remote.as_str(),
+            user = self.username.as_deref(),
+            local = self.local.as_deref(),
+            flags,
+        )
+        .entered();
 
         // Sized so any real access name fits on the first call: the name is
         // either a mapped drive ("Z:", nowhere near 1024) or, for
@@ -224,9 +234,16 @@ impl SmbTarget {
                 &raw mut result,
             )
         };
-        debug!("WNetUseConnectionW returned {status}, result {result:#x}");
+        debug!(
+            operation = "WNetUseConnectionW",
+            status, result, "WNet call returned"
+        );
         check_wnet(status)?;
-        Ok(from_wide_buf(&access_name))
+        // Windows may have just mapped a drive of its choosing; record which,
+        // so a lingering mapping can be traced back here.
+        let access_name = from_wide_buf(&access_name);
+        debug!(access_name = access_name.as_str(), "connected");
+        Ok(access_name)
     }
 
     /// Connect and return an RAII [`Connection`] guard that disconnects when
@@ -316,14 +333,17 @@ impl SmbTarget {
 /// # Errors
 /// See [`Error`].
 pub fn cancel_connection(name: &str, options: DisconnectOptions) -> Result<()> {
+    let _span = debug_span!(
+        "cancel_connection",
+        name,
+        force = options.force,
+        forget = options.forget,
+    )
+    .entered();
     if options.forget && !is_drive(name) {
         return Err(Error::ForgetRequiresDrive);
     }
     let wide = to_wide(name)?;
-    trace!(
-        "disconnecting {name} (force={}, forget={})",
-        options.force, options.forget
-    );
     // SAFETY: `wide` is a valid nul-terminated string outliving the call.
     let flags = if options.forget {
         WNet::CONNECT_UPDATE_PROFILE
@@ -332,7 +352,10 @@ pub fn cancel_connection(name: &str, options: DisconnectOptions) -> Result<()> {
     };
     let status =
         unsafe { WNet::WNetCancelConnection2W(wide.as_ptr(), flags, i32::from(options.force)) };
-    debug!("WNetCancelConnection2W returned {status}");
+    debug!(
+        operation = "WNetCancelConnection2W",
+        status, "WNet call returned"
+    );
     check_wnet(status)
 }
 
@@ -342,7 +365,8 @@ fn is_drive(name: &str) -> bool {
 
 /// RAII guard returned by [`SmbTarget::connect_guarded`] and
 /// [`SmbTarget::connect_auto_guarded`]: cancels the connection when dropped
-/// (best effort — a failure on drop is only visible as a `tracing` event).
+/// (best effort — a failure on drop is only reported as a `tracing` warning;
+/// a drive that was already disconnected is logged at debug level).
 ///
 /// A guard always owns a drive mapping ([`Connection::device`]) and cancels
 /// exactly that drive, never the remote name. The drive was
@@ -384,7 +408,22 @@ impl Drop for Connection {
         if self.armed
             && let Err(e) = cancel_connection(&self.device, DisconnectOptions::default())
         {
-            debug!("failed to disconnect {} on guard drop: {e}", self.device);
+            // Drop cannot return the error, so this event is the only
+            // report. A drive that is already gone is harmless; anything
+            // else may leave the drive mapped.
+            if e.code() == Some(ERROR_NOT_CONNECTED) {
+                debug!(
+                    device = self.device.as_str(),
+                    error = %e,
+                    "connection already gone on guard drop"
+                );
+            } else {
+                warn!(
+                    device = self.device.as_str(),
+                    error = %e,
+                    "failed to disconnect on guard drop; the drive may stay mapped"
+                );
+            }
         }
     }
 }
